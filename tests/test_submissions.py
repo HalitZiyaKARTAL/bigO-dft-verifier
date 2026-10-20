@@ -141,40 +141,63 @@ class SubmissionTests(unittest.TestCase):
             self.assertFalse(s.qualifies_for_run(s.parse_body(body(problem,worse)),record))
         self.assertTrue(s.qualifies_for_run(s.parse_body(body()),{'score':'1/1000','score_relation':'strict-upper-bound'}))
 
+    def board(self, problem, rows, verified=()):
+        """A site board: rows (id, score[, relation]); ids in verified have a Lean Verified receipt."""
+        records, meta = [], {}
+        for row in rows:
+            rid, score = row[0], row[1]
+            r = {'id': rid, 'score': score, 'submission_url': f'https://example.org/{rid}'}
+            if len(row) > 2: r['score_relation'] = row[2]
+            if rid in verified: r['rerun_status'] = {'state': 'passed', 'receipt_path': f'sources/{rid}.json'}
+            records.append(r); meta[rid] = {'site_tier': 'verified' if rid in verified else 'claimed'}
+        return {'problem_id': s.MODEL_IDS[problem], 'records': records, 'record_metadata': meta}
+
+    def gate(self, problem, data, url='https://github.com/bigospeedrun/verifier/issues/42'):
+        with patch.object(s, 'site_snapshot', return_value=('a'*40, json.dumps(data).encode())):
+            return s.current_record(problem, url)
+
     def test_open_endpoint_is_weaker_than_an_attained_tie(self):
         # Worker 2, 2026-10-17: on exponent boards min() picked the endpoint over an attained tie.
         for problem,score in [('dft','1/1000'),('3sum','1999/1000'),('apsp','2999/1000')]:
-            data={'problem_id':s.MODEL_IDS[problem],'records':[{'id':'open','score':score,'score_relation':'strict-upper-bound'},{'id':'closed','score':score}],
-                  'record_metadata':{'open':{},'closed':{}}}
-            with patch.object(s,'site_snapshot',return_value=('a'*40,json.dumps(data).encode())):
-                record=s.current_record(problem,'https://github.com/bigospeedrun/verifier/issues/42')
+            record=self.gate(problem,self.board(problem,[('open',score,'strict-upper-bound'),('closed',score)],verified={'open','closed'}))
             self.assertEqual((record['leader_ids'],record['score_relation']),(['closed'],'attained'),problem)
             # An attained submission at an open endpoint's score improves on it.
             self.assertTrue(s.qualifies_for_run(s.parse_body(body(problem,score)),{'score':score,'score_relation':'strict-upper-bound','any_lean_verified_at_bound':True}),problem)
 
-    def test_record_snapshot_matches_board_admission(self):
-        data = {'problem_id': '3sum/word-ram', 'records': [
-            {'id': 'record', 'score': '1999/1000', 'submission_url': 'https://example.org/record'},
-            {'id': 'self', 'score': '1', 'submission_url': 'https://github.com/bigospeedrun/verifier/issues/42'},
-            {'id': 'reproduction', 'score': '0', 'submission_url': 'https://example.org/copy'}],
-            'record_metadata': {'record': {'eligible_for_record': False}, 'self': {'eligible_for_record': True}, 'reproduction': {'reproduction_of': 'record'}}}
-        with patch.object(s, 'site_snapshot', return_value=('a'*40, json.dumps(data).encode())):
-            record = s.current_record('3sum', 'https://github.com/bigospeedrun/verifier/issues/42')
-        self.assertEqual(record['leader_ids'], ['record'])
-        self.assertFalse(record['any_lean_verified_at_bound'])
+    def test_the_gate_is_the_best_lean_verified_row(self):
+        # Nil ruling 2026-10-20: a Claimed row never blocks a proof run; the best Lean Verified row does.
+        data = self.board('3sum', [('claimed-best', '19/10'), ('record', '1999/1000'), ('self', '1'), ('reproduction', '0'), ('classical-baseline', '2')],
+                          verified={'record', 'self', 'reproduction'})
+        data['records'][2]['submission_url'] = 'https://github.com/bigospeedrun/verifier/issues/42'
+        data['record_metadata']['reproduction']['reproduction_of'] = 'record'
+        record = self.gate('3sum', data)
+        self.assertEqual((record['score'], record['leader_ids'], record['any_lean_verified_at_bound']), ('1999/1000', ['record'], True))
         self.assertEqual(record['site_commit'], 'a'*40)
+        # Worse than the Claimed leader 1.9 but better than the Lean Verified 1.999: it runs.
+        self.assertTrue(s.qualifies_for_run(s.parse_body(body('3sum', '999/500')), record))
+        # A tie with the Lean Verified leader and a worse bound do not.
+        self.assertFalse(s.qualifies_for_run(s.parse_body(body('3sum', '1999/1000')), record))
+        self.assertFalse(s.qualifies_for_run(s.parse_body(body('3sum', '2')), record))
 
     def test_tied_leader_evidence_is_receipt_backed(self):
-        rows = [{'id': name, 'score': '1/1000', 'tier': 'verified'} for name in ['a','b']]
-        data = {'problem_id': 'exact-dft/uniform-exact-arithmetic', 'records': rows,
-                'record_metadata': {'a': {'site_tier': 'verified'}, 'b': {'site_tier': 'claimed'}}}
-        def snapshot():
-            with patch.object(s,'site_snapshot',return_value=('a'*40,json.dumps(data).encode())):
-                return s.current_record('dft','https://github.com/bigospeedrun/verifier/issues/42')
-        self.assertEqual(snapshot()['leader_ids'], ['a','b'])
-        self.assertTrue(s.qualifies_for_run(self.selected()['submission'],snapshot()))
-        rows[0]['rerun_status'] = {'state': 'passed', 'receipt_path': 'sources/receipt.json'}
-        self.assertFalse(s.qualifies_for_run(self.selected()['submission'],snapshot()))
+        # A Claimed row at the same bound is not a leader; only the receipt-backed row is.
+        data = self.board('dft', [('a', '1/1000'), ('b', '1/1000'), ('classical-baseline', '1/2000')], verified={'a'})
+        record = self.gate('dft', data)
+        self.assertEqual((record['leader_ids'], record['any_lean_verified_at_bound']), (['a'], True))
+        self.assertFalse(s.qualifies_for_run(self.selected()['submission'], record))
+        # Without a receipt (site_tier verified alone) the row is not Lean Verified: the baseline gates.
+        data = self.board('dft', [('a', '1/1000'), ('classical-baseline', '1/2000')])
+        data['record_metadata']['a']['site_tier'] = 'verified'
+        record = self.gate('dft', data)
+        self.assertEqual((record['leader_ids'], record['any_lean_verified_at_bound']), (['classical-baseline'], False))
+        self.assertTrue(s.qualifies_for_run(self.selected()['submission'], record))
+
+    def test_a_board_without_lean_verified_rows_gates_on_the_baseline_or_refuses(self):
+        record = self.gate('apsp', self.board('apsp', [('claimed', '2999/1000'), ('classical-baseline', '3')]))
+        self.assertEqual((record['score'], record['leader_ids'], record['any_lean_verified_at_bound']), ('3', ['classical-baseline'], False))
+        self.assertTrue(s.qualifies_for_run(s.parse_body(body('apsp', '3')), record))  # a tie with the baseline runs
+        with self.assertRaisesRegex(ValueError, 'refuse to guess'):
+            self.gate('apsp', self.board('apsp', [('claimed', '2999/1000')]))
 
     def test_preflight_stops_when_record_advances(self):
         selected = self.selected(); selected['test_only'] = False

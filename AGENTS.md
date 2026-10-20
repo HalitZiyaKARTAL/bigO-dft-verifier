@@ -38,8 +38,10 @@ artifact data. Recheck the complete added-only folder diff, file modes,
 controller blob identities and current head. Merge with GitHub’s SHA condition.
 Re-read the head immediately before closure; a changed head stays open.
 Validate run identity before artifact download; enforce API size and stream caps.
-Check the current record at selection and again before compilation. A bound
-below the record stays Claimed and starts no Lean run. A tie qualifies unless
+Check the record gate at selection and again before compilation. The gate is the
+best Lean Verified row of the board (Nil ruling 2026-10-20); Claimed rows never
+block a run, and with no Lean Verified row the classical baseline is the gate. A
+bound below the gate stays Claimed and starts no Lean run. A tie qualifies unless
 a tied leader already has Lean Verified evidence. Preserve separate author rows.
 Never check out fork workflow code. Keep action pins and strict input checks.
 

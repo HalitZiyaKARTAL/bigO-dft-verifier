@@ -29,7 +29,7 @@ saving is better. For 3SUM and APSP, it is the exponent r in O(n^r); smaller
 is better. The ranges are 0 ≤ s ≤ 1, 0 ≤ r ≤ 2 for 3SUM, and 0 ≤ r ≤ 3 for APSP.
 
 The verifier runs up to nine public submissions and one maintainer test in parallel,
-with one queued public run per GitHub account. A run starts only if the bound matches or beats the current record;
+with one queued public run per GitHub account. A run starts only if the bound matches or beats the best Lean Verified result on that board (a Claimed result does not block it);
 otherwise, the bot replies that the submission is listed as Claimed.
 The bot posts a receipt on the issue or PR. For PRs, a Lean pass causes an
 automatic merge. A real Lean or axiom failure, or a real nanoda rejection,

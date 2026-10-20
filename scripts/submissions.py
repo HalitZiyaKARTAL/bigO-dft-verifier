@@ -242,25 +242,32 @@ def open_rank(problem):
 
 
 def current_record(problem, issue_url):
-    """Read the board from a resolved immutable site commit, never the issue repo."""
+    """Read the board from a resolved immutable site commit, never the issue repo.
+
+    The gate is the best Lean Verified row of the board (Nil ruling 2026-10-20): a Claimed
+    or Human Verified row never blocks a proof run. With no Lean Verified row, the classical
+    baseline is the gate, so a bound must at least match it."""
     sha, raw = site_snapshot(problem)
     data = json.loads(raw)
     if data['problem_id'] != MODEL_IDS[problem]:
         raise ValueError('Current record model mismatch')
+    def lean_verified(row):
+        metadata = data['record_metadata'].get(row['id'], {})
+        rerun = row.get('rerun_status') or {}
+        return metadata.get('site_tier') == 'verified' and rerun.get('state') == 'passed' and bool(rerun.get('receipt_path'))
     records = [r for r in data['records'] if r.get('submission_url') != issue_url
                and r['id'] != 'classical-baseline'
-               and not data['record_metadata'].get(r['id'], {}).get('reproduction_of')]
+               and not data['record_metadata'].get(r['id'], {}).get('reproduction_of')
+               and lean_verified(r)]
     if not records:
-        raise ValueError('No current record; refuse to guess')
+        records = [r for r in data['records'] if r['id'] == 'classical-baseline']
+    if not records:
+        raise ValueError('No Lean Verified record or baseline; refuse to guess')
     # Mirrors the site comparison (site data/direct_import.py open_rank): exact score
     # first, and an open endpoint is weaker than an attained value at the same score.
     key = lambda r: (Fraction(r['score']), open_rank(problem) if r.get('score_relation') == 'strict-upper-bound' else 0)
     best = (max if problem == 'dft' else min)(records, key=key)
     leaders = [r for r in records if key(r) == key(best)]
-    def lean_verified(row):
-        metadata = data['record_metadata'].get(row['id'], {})
-        rerun = row.get('rerun_status') or {}
-        return metadata.get('site_tier') == 'verified' and rerun.get('state') == 'passed' and bool(rerun.get('receipt_path'))
     return {'schema_version': 1, 'score': str(Fraction(best['score'])),
             'score_relation': best.get('score_relation', 'attained'),
             'leader_ids': sorted(r['id'] for r in leaders),
@@ -274,8 +281,9 @@ def qualifies_for_run(submission, record):
     candidate = (Fraction(submission['bound']), 0)
     current = (Fraction(record['score']), open_rank(submission['problem']) if record['score_relation'] == 'strict-upper-bound' else 0)
     if candidate == current:
-        # A tie can upgrade Claimed evidence. Missing evidence metadata cannot
-        # authorize a costly run. Never relabel another author's record.
+        # A tie with a Lean Verified leader starts no run; a tie with the baseline (no Lean
+        # Verified row yet) does. Missing evidence metadata cannot authorize a costly run.
+        # Never relabel another author's record.
         return record.get('any_lean_verified_at_bound') is False
     return candidate > current if submission['problem'] == 'dft' else candidate < current
 

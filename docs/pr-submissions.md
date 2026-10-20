@@ -15,7 +15,7 @@ are rejected. Limit: 500 files, 20 MB each, 150 MB total; manifest at most 1 KB.
 The source pin is the PR head SHA in the verifier repository's PR commit graph.
 Users need no separate public proof project. A GitHub fork/PR may still be used.
 
-The same all-evidence record gate applies, including a tie unless a tied leader
+The same record gate applies (the best Lean Verified row), including a tie unless a tied leader
 already has receipt-backed Lean Verified evidence. The check repeats before
 compilation. A below-record PR receives a comment, remains open, and stays Claimed.
 

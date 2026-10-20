@@ -24,16 +24,16 @@ The historical `dft233` entry point is only a local receipt-test/manual profile.
 The selector reads `data/{problem}.json` from `bigospeedrun/site`, at a resolved
 immutable main-branch commit. It checks the same problem/model and exact score
 order. It excludes the candidate issue itself, classical-baseline, and rows with
-`record_metadata[id].reproduction_of`. It includes open claims regardless of
-`eligible_for_record`, matching the site board filter.
+`record_metadata[id].reproduction_of`. Of the other rows it keeps only the Lean
+Verified ones: metadata `site_tier: verified`, `rerun_status.state: passed`, and a
+nonempty `receipt_path` (Nil ruling 2026-10-20). A Claimed or Human Verified row,
+even a better one, never blocks a proof run. With no Lean Verified row, the
+classical baseline is the gate. With neither, selection stops instead of guessing.
 The receipt records the board commit, data hash, leader IDs, verified-tie evidence, score, relation, and
-observation time. The proposed policy uses the current eligible board leader
-across evidence levels. A failed lookup stops selection instead of guessing.
+observation time.
 
-A bound that matches or beats the leader gets a proof job. A tie is skipped
-when any tied leader is already Lean Verified: metadata `site_tier: verified`,
-`rerun_status.state: passed`, and a nonempty `receipt_path`. Numeric ranking
-does not otherwise depend on evidence. The snapshot records all `leader_ids`
+A bound that matches or beats the best Lean Verified row gets a proof job. A tie
+with a Lean Verified leader is skipped; a tie with the classical baseline runs. The snapshot records all `leader_ids`
 and `any_lean_verified_at_bound`. A passing equal-bound proof creates its own
 row; it never changes credit or evidence on another author’s row. An attained saving at the same
 value as a strict frontier compares according to the site's score relation.
@@ -135,7 +135,7 @@ It contains `direct-submission.json`, schema version 1:
   final workflow conclusion from GitHub API metadata and keeps it separate.
 - `receipt`: full verifier receipt, with separate kernel outcomes, axiom sets,
   theorem results, source/tool hashes, resource measurements, and finish time.
-- `record_gate`: the current record snapshot used for the admission-to-run check.
+- `record_gate`: the snapshot of the best Lean Verified row (or the classical baseline) used for the admission-to-run check.
 
 The importer independently binds repository, approved verifier revision, workflow
 `.github/workflows/submissions.yml` and its reusable `submission-check.yml`, run,
