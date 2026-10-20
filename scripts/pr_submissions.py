@@ -360,10 +360,15 @@ def read_archive(raw, metadata):
     return result
 
 
+# A running verify run can show queued, waiting, pending or requested between its jobs
+# (2026-10-20 20:47:59Z: the select job had ended and the check job had not started).
+RUNNING_STATES = ['queued', 'waiting', 'pending', 'requested', 'in_progress']
+
+
 def validate_run_identity(run, allow_running=False):
     if (run.get('repository', {}).get('full_name') != s.REPOSITORY
             or run.get('path') != WORKFLOW or run.get('event') not in ['schedule', 'issues', 'workflow_dispatch']
-            or run.get('status') not in (['in_progress', 'completed'] if allow_running else ['completed']) or run.get('head_branch') != 'main'
+            or run.get('status') not in (RUNNING_STATES + ['completed'] if allow_running else ['completed']) or run.get('head_branch') != 'main'
             or run.get('head_repository', {}).get('full_name') != s.REPOSITORY):
         raise ValueError('Untrusted verification workflow')
     workflow = api('actions/workflows/submissions.yml')
@@ -500,7 +505,7 @@ def publish_pr(artifact_override=None, stage="final"):
         if disposition in ['blocked', 'keep_open']:
             label_review(number)
     else:
-        api(f'issues/{number}/comments', {'body': comment})
+        s.comment_once(number, comment, api)
     if disposition == 'merge' and not recovering_merge:
         # GitHub performs the final head compare atomically. Never retry without
         # the verified sha, and never bypass branch protection.

@@ -43,6 +43,7 @@ class EarlyPublicationTests(unittest.TestCase):
             if path.startswith('actions/runs/'):
                 if '/artifacts?' in path:return {'artifacts':[]}
                 return {'run_attempt':1,'status':'in_progress'}
+            if '/comments' in path:return []
             return issue()
         with tempfile.TemporaryDirectory() as tmp:
             old=Path.cwd();os.chdir(tmp)

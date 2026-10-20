@@ -200,6 +200,30 @@ def is_bot(comment):
     return comment.get('user', {}).get('login') == 'github-actions[bot]' and comment.get('user', {}).get('type') == 'Bot'
 
 
+RECEIPT_LINK = re.compile(r'\]\((https://github\.com/[^)\s]+/actions/runs/[0-9]+/artifacts/[0-9]+)\)')
+
+
+def comment_once(number, body, call=None):
+    """Post a result comment unless a bot comment already links the same receipt artifact.
+    GitHub can start two publisher watchers for one verify run (a run that goes queued and
+    back to in_progress sends a second event); both see the same checkpoint (2026-10-20)."""
+    call = call or api
+    links = RECEIPT_LINK.findall(body)
+    if links:
+        for page in range(1, 11):
+            comments = call(f'issues/{number}/comments?per_page=100&page={page}')
+            if not isinstance(comments, list):
+                raise ValueError('Unexpected comment list')
+            if any(isinstance(c, dict) and is_bot(c) and links[0] in (c.get('body') or '') for c in comments):
+                return False
+            if len(comments) < 100:
+                break
+        else:
+            raise ValueError('Comment lookup exceeds bounded scan; review required')
+    call(f'issues/{number}/comments', {'body': body})
+    return True
+
+
 def issue_input(issue):
     if 'pull_request' in issue or issue.get('state') != 'open' or not issue.get('title', '').startswith(TITLE):
         return None
@@ -541,7 +565,7 @@ def report():
 def publish():
     # Called only after the immutable result artifact has uploaded successfully.
     comment = json.loads(Path('published-comment.json').read_text())
-    api(f"issues/{comment['issue_number']}/comments", {'body': comment['body']})
+    comment_once(comment['issue_number'], comment['body'])
     # A final result closes the issue: completed on a pass, not planned on a rejection.
     # Only the report comment carries a close decision; earlier comments never close.
     if comment.get('close'):

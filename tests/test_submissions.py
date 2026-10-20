@@ -255,7 +255,7 @@ class SubmissionTests(unittest.TestCase):
                 Path('request').mkdir();Path('result').mkdir()
                 Path('request/request.json').write_text(json.dumps(selected));Path('result/receipt.json').write_text(json.dumps(receipt))
                 def fake_api(path,data=None):
-                    if data is None:return issue(commit='2'*40)
+                    if data is None:return [] if '/comments' in path else issue(commit='2'*40)
                     calls.append(data)
                 with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40):
                     s.report();self.assertEqual(calls,[]);s.publish()
@@ -278,7 +278,7 @@ class SubmissionTests(unittest.TestCase):
                 if gate:Path('result/gate.json').write_text(json.dumps(gate))
                 calls=[]
                 def fake_api(path,data=None,method=None):
-                    if data is None:return issue()
+                    if data is None:return [] if '/comments' in path else issue()
                     calls.append((method,path,data))
                 with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40):
                     s.report();s.publish()

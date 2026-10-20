@@ -68,7 +68,7 @@ def publish_issue(run, artifact):
     # GitHub has no atomic artifact-check/comment-write operation. Describe the
     # immutable checkpoint, never current nanoda status: final publication can
     # race the last API read without making this historical statement false.
-    p.api(f'issues/{number}/comments',{'body':f"Lean checkpoint recorded: {status}. This checkpoint does not include the final nanoda result.\n\n[Lean checkpoint receipt and logs]({url}) · [Current workflow results](https://github.com/{s.REPOSITORY}/actions/runs/{run['id']})"})
+    s.comment_once(number,f"Lean checkpoint recorded: {status}. This checkpoint does not include the final nanoda result.\n\n[Lean checkpoint receipt and logs]({url}) · [Current workflow results](https://github.com/{s.REPOSITORY}/actions/runs/{run['id']})",p.api)
 
 
 def watch():

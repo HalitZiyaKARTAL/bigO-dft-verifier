@@ -309,6 +309,38 @@ class PRTests(unittest.TestCase):
 
 
 
+    def test_a_running_verify_run_may_show_queued_between_jobs(self):
+        # 2026-10-20 20:47:59Z: the select job had ended and the check job had not started; the
+        # watcher read 'queued' and failed with 'Untrusted verification workflow'.
+        run={'id':123,'run_attempt':1,'repository':{'full_name':s.REPOSITORY},'head_repository':{'full_name':s.REPOSITORY},'head_sha':'b'*40,'head_branch':'main','path':p.WORKFLOW,'event':'schedule','workflow_id':55}
+        with patch.object(p,'api',return_value={'id':55}):
+            for status in ['queued','waiting','pending','requested','in_progress','completed']:
+                p.validate_run_identity(dict(run,status=status),allow_running=True)
+            for status in ['queued','in_progress']:
+                with self.assertRaisesRegex(ValueError,'Untrusted'):p.validate_run_identity(dict(run,status=status))
+            with self.assertRaisesRegex(ValueError,'Untrusted'):p.validate_run_identity(dict(run,status='queued',event='pull_request'),allow_running=True)
+
+    def test_a_result_comment_is_posted_once_per_receipt(self):
+        url='https://github.com/'+s.REPOSITORY+'/actions/runs/123/artifacts/456'
+        body='Lean checkpoint recorded: Lean Verified.\n\n[Lean checkpoint receipt and logs]('+url+')'
+        bot={'login':'github-actions[bot]','type':'Bot'}
+        def call_with(comments):
+            posts=[]
+            def call(path,data=None,method=None):
+                if data is None:return comments
+                posts.append((path,data));return {}
+            return call,posts
+        # A second watcher finds the bot comment with the same receipt link and posts nothing.
+        call,posts=call_with([{'user':bot,'body':body}])
+        self.assertFalse(s.comment_once(42,body,call));self.assertEqual(posts,[])
+        # Another receipt, or the same link quoted by a person, does not count.
+        for comments in [[{'user':bot,'body':body.replace('/456','/457')}],[{'user':{'login':'someone','type':'User'},'body':body}]]:
+            call,posts=call_with(comments)
+            self.assertTrue(s.comment_once(42,body,call));self.assertEqual(posts,[('issues/42/comments',{'body':body})])
+        # The scan is bounded: ten full pages without an answer need review.
+        call,posts=call_with([{'user':{'login':'x','type':'User'},'body':'x'}]*100)
+        with self.assertRaisesRegex(ValueError,'bounded scan'):s.comment_once(42,body,call)
+
 if __name__=='__main__':unittest.main()
 
 class FinalCommentTests(unittest.TestCase):
