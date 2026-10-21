@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 import zipfile
 
@@ -167,7 +168,7 @@ class PRTests(unittest.TestCase):
                 with self.assertRaises(ValueError):p.validate_run(dict(run,**{key:value}),self.request(),self.pr)
             with self.assertRaises(ValueError):p.validate_run(run,dict(self.request(),test_only=True),self.pr)
 
-    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False):
+    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False):
         request=self.request();receipt=self.receipt();buf=io.BytesIO()
         suffix='-lean' if stage=='lean' else ''
         if stage=='lean':
@@ -190,6 +191,16 @@ class PRTests(unittest.TestCase):
             nonlocal pr_reads
             if data is not None:
                 calls.append((path,data,method))
+                if path.endswith('/merge') and merged_by_other:
+                    # merged_by_other: 'other' (the other watcher merged first; GitHub declines this merge),
+                    # 'lost' (this merge succeeded but its reply failed), 'moved' (merged at a newer head),
+                    # 'no' (declined, not merged).
+                    if merged_by_other=='other':pr.update(merged=True,merge_commit_sha='d'*40);return {'merged':False}
+                    if merged_by_other=='lost':
+                        pr.update(merged=True,merge_commit_sha='d'*40)
+                        raise urllib.error.HTTPError(path,502,'Bad Gateway',None,None)
+                    if merged_by_other=='moved':pr.update(merged=True,merge_commit_sha='d'*40);pr['head']['sha']='e'*40;return {'merged':False}
+                    return {'merged':False}
                 return {'merged':True,'sha':'d'*40} if path.endswith('/merge') else {}
             if path=='actions/runs/123':return run
             if path=='actions/runs/123/artifacts?per_page=100':return {'artifacts':[{'id':99,'name':'pr-verification-123-1-7'+suffix,'size_in_bytes':len(buf.getvalue()) if artifact_size is None else artifact_size,'expired':False,'digest':'sha256:'+p.digest(buf.getvalue())}]}
@@ -272,6 +283,24 @@ class PRTests(unittest.TestCase):
                 self.assertEqual(result['disposition'],'keep_open')
                 self.assertFalse(any(c[0].endswith('/merge') for c in calls))
                 self.assertFalse(any(c[1]=={'state':'closed'} for c in calls))
+
+    def test_a_declined_merge_of_a_merged_verified_head_is_the_merge(self):
+        # The other watcher merged first, or this merge succeeded and its reply was lost: an importable merge, no review.
+        for stage in ['lean','final']:
+            for case in ['other','lost']:
+                with self.subTest(stage=stage,case=case):
+                    result,calls=self.publish_fixture(stage=stage,merged_by_other=case)
+                    self.assertEqual((result['disposition'],result['importable'],result['merge_commit']),('merge',True,'d'*40))
+                    self.assertFalse(any('labels' in c[0] or '@nmamano' in str(c[1]) for c in calls))
+        # Merged at a newer head: the newer commit has its own check.
+        result,calls=self.publish_fixture(merged_by_other='moved')
+        self.assertEqual((result['disposition'],result['importable'],result['merge_commit']),('keep_open',False,None))
+        self.assertIn('newer commit',result['reason'])
+        # Declined at the same head and not merged: review, with the label and the ping.
+        result,calls=self.publish_fixture(merged_by_other='no')
+        self.assertEqual((result['disposition'],result['importable']),('keep_open',False))
+        self.assertTrue(any(c[0].endswith('/labels') for c in calls))
+        self.assertTrue(any('@nmamano' in str(c[1]) for c in calls))
 
     def test_lean_checkpoint_merges_before_nanoda(self):
         result,calls=self.publish_fixture(stage='lean')

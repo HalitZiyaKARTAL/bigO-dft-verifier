@@ -604,12 +604,19 @@ def publish_pr(artifact_override=None, stage="final"):
                 raise ValueError('GitHub declined the merge')
             envelope['merge_commit'] = result['sha']
         except (urllib.error.HTTPError, ValueError):
-            envelope.update(disposition='keep_open', reason='Merge declined or head changed; review required', importable=False)
             current = api(f'pulls/{number}')
-            if current['head']['sha'] != request['head_sha']:
-                envelope['reason'] = 'A newer commit has its own check; merge skipped'
+            merge_commit = current.get('merge_commit_sha') or ''
+            if current['head']['sha'] == request['head_sha'] and current.get('merged') is True and SHA.fullmatch(merge_commit):
+                # The verified head is merged: the other publisher watcher of this checkpoint merged it first
+                # (PR #29, 2026-10-21), or this merge succeeded and its reply was lost. Either way this copy is
+                # the merge it is; the site binds merge_commit to the PR and keeps one row per PR.
+                envelope['merge_commit'] = merge_commit
             else:
-                label_review(number, f'{run_id} {attempt}')
+                envelope.update(disposition='keep_open', reason='Merge declined or head changed; review required', importable=False)
+                if current['head']['sha'] != request['head_sha']:
+                    envelope['reason'] = 'A newer commit has its own check; merge skipped'
+                else:
+                    label_review(number, f'{run_id} {attempt}')
     elif disposition == 'close' and not recovering_merge:
         current = api(f'pulls/{number}')
         if current['head']['sha'] != request['head_sha']:
