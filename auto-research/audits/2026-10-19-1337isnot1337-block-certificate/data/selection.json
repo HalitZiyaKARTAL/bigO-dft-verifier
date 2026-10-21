@@ -1,0 +1,51 @@
+{
+  "seed": 83,
+  "track": "audits",
+  "candidates": [
+    "matroid-prophet B>141 certificate",
+    "average-sensitivity rational coefficient certificate",
+    "block-sensitivity 380/187 certificate"
+  ],
+  "selection_rule": "seed modulo 3, zero based",
+  "chosen_index": 2,
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "open_prs": [
+    {
+      "headRefOid": "cd95de596dcecb0745c9509ad70ed9e8825ee816",
+      "number": 20,
+      "title": "statement: Heilbronn triangle with the saving as a parameter",
+      "url": "https://github.com/bigospeedrun/verifier/pull/20"
+    },
+    {
+      "headRefOid": "9e19132b498762d9db06293bbf024df5c0b66c67",
+      "number": 17,
+      "title": "formalization: Subset Sum 0.4877, Lean proof of the averaged small-layer lemma (Section 3)",
+      "url": "https://github.com/bigospeedrun/verifier/pull/17"
+    },
+    {
+      "headRefOid": "a505b4f012ae8e5b985de9022ab84e3db6766950",
+      "number": 15,
+      "title": "Add proposed average-sensitivity trusted statement",
+      "url": "https://github.com/bigospeedrun/verifier/pull/15"
+    },
+    {
+      "headRefOid": "4cfb6db4d58932e3bbf22f3abd5f97831d981e94",
+      "number": 12,
+      "title": "Lean statement: Subset Sum on the randomized word RAM, exponent as parameter",
+      "url": "https://github.com/bigospeedrun/verifier/pull/12"
+    },
+    {
+      "headRefOid": "f0f29fc20fb4fa89f48e3bf64893f39a392fd9bb",
+      "number": 11,
+      "title": "Matrix multiplication: parameterized circuit-exponent statement",
+      "url": "https://github.com/bigospeedrun/verifier/pull/11"
+    }
+  ],
+  "open_issues": [],
+  "board": {
+    "url": "https://board.bigospeedrun.com/api/posts?board=other-block-sensitivity&format=md",
+    "sha256": "0459dbb5fe171eb644e739655390e6a3595df7a57ebb33fca7ffca326ec1a667",
+    "posts": 0
+  },
+  "discord": "Not checked: no authenticated Discord access available. No post sent."
+}

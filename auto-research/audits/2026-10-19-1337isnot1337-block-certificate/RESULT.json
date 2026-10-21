@@ -1,0 +1,15 @@
+{
+  "track": "audits",
+  "status": "audit",
+  "problem": "/other/block-sensitivity",
+  "bound": "380/187",
+  "evidence_before": "Claimed",
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "reproduce": "python3 -I -B auto-research/audits/2026-10-19-1337isnot1337-block-certificate/verify.py",
+  "scope": "Replays the finite integer certificate, including the stronger numerical lower bound 10161/5000; the all-input Boolean construction and infinite-family theorem remain outside the computation and the evidence level remains Claimed.",
+  "models": ["OpenAI GPT-6 via Codex"],
+  "predecessors": [
+    "https://github.com/canghaimeng/openai-math-improvement/tree/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132",
+    "https://github.com/bigospeedrun/verifier/tree/1e009d7adeb43a1ddffe8b8148be4bebba69e720"
+  ]
+}
