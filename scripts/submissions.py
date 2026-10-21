@@ -364,7 +364,7 @@ def acknowledge():
                 return found
         return None
 
-    for item in call(f'issues?state=open&sort=created&direction=desc&per_page={ACK_LIMIT}'):
+    def reply(item):
         number = item['number']
         if 'pull_request' in item:
             budget['calls'] += 1
@@ -378,16 +378,16 @@ def acknowledge():
                 submission, known = error, []
             else:
                 if submission is None:
-                    continue
+                    return
                 known = [submission_hash(submission)]
         else:
-            continue
+            return
         marker = ACK + str(number) + ' ' + version + ' -->'
         replies = bot_comments(number)
         # A thread longer than 10 pages: do not post (a reply could be on a later page).
         # A version that already has its acknowledgement, or a result or claimed reply, needs none.
         if replies is None or any(k in (c.get('body') or '') for c in replies for k in [marker, *known]):
-            continue
+            return
         if 'pull_request' in item:
             budget['calls'] += 3
             text = ('Received. This proof PR waits for the verifier queue: one proof run runs at a time, and the '
@@ -410,6 +410,15 @@ def acknowledge():
                 call(f'issues/comments/{int(posted["id"])}', method='DELETE')
             except ValueError:
                 pass  # 204 No Content: the delete succeeded; there is no JSON body to read.
+
+    for item in call(f'issues?state=open&sort=created&direction=desc&per_page={ACK_LIMIT}'):
+        try:
+            reply(item)
+        except (AckLimit, ScanLimit):
+            raise
+        except Exception as error:
+            # One failed item (a 403 on a PR comment, 2026-10-21 18:47Z) must not stop the replies to the others.
+            print(f"Acknowledgement of #{int(item.get('number') or 0)} failed: {type(error).__name__}", flush=True)
 
 
 def select_bounded():

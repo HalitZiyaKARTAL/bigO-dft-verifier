@@ -408,6 +408,27 @@ class AcknowledgeTests(unittest.TestCase):
         long = other[:950]; long[450] = {'id': 9999, 'user': BOT, 'body': marker}
         self.assertEqual(self.run_ack([item], {'42': long}), [])
 
+    def test_a_failed_item_does_not_stop_the_others(self):
+        # 2026-10-21 18:47Z: the comment on the first PR failed (HTTP 403), and no later item got a reply.
+        import urllib.error
+        items = [{'number': 21, 'title': 'statement: x', 'pull_request': {}}, self.issue(35, '1/3')]
+        pulls = {'pulls/21': {'number': 21, 'head': {'sha': 'c' * 40}, 'changed_files': 1}}
+        real = s.api
+        posts = []
+        def api(path, data=None, method=None):
+            if data is not None and path == 'issues/21/comments':
+                raise urllib.error.HTTPError(path, 403, 'Forbidden', None, None)
+            if data is not None:
+                posts.append(path); return {'id': 7}
+            if path.startswith('issues?'):return items
+            if '/comments?' in path:return []
+            raise AssertionError(path)
+        import pr_submissions as pr
+        with patch.object(s, 'api', side_effect=api), patch.object(pr, 'api', side_effect=lambda path: pulls[path]), \
+             patch.object(pr, 'proof_candidate', return_value=False):
+            s.acknowledge()
+        self.assertEqual(posts, ['issues/35/comments'])
+
     def test_the_pass_has_its_own_cap(self):
         items = [self.issue(n) for n in range(100, 130)]
         with patch.object(s, 'ACK_CALLS', 7):
