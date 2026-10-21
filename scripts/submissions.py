@@ -203,12 +203,13 @@ def is_bot(comment):
 RECEIPT_LINK = re.compile(r'\]\((https://github\.com/[^)\s]+/actions/runs/[0-9]+/artifacts/[0-9]+)\)')
 
 
-def comment_once(number, body, call=None):
-    """Post a result comment unless a bot comment already links the same receipt artifact.
+def comment_once(number, body, call=None, key=None):
+    """Post a result comment unless a bot comment already links the same receipt artifact
+    (or, with a key, already contains that key).
     GitHub can start two publisher watchers for one verify run (a run that goes queued and
     back to in_progress sends a second event); both see the same checkpoint (2026-10-20)."""
     call = call or api
-    links = RECEIPT_LINK.findall(body)
+    links = [key] if key else RECEIPT_LINK.findall(body)
     if links:
         for page in range(1, 11):
             comments = call(f'issues/{number}/comments?per_page=100&page={page}')

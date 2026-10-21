@@ -341,6 +341,22 @@ class PRTests(unittest.TestCase):
         call,posts=call_with([{'user':{'login':'x','type':'User'},'body':'x'}]*100)
         with self.assertRaisesRegex(ValueError,'bounded scan'):s.comment_once(42,body,call)
 
+    def test_the_review_ping_is_posted_once_per_run_attempt(self):
+        bot={'login':'github-actions[bot]','type':'Bot'}
+        comments,posts=[],[]
+        def api(path,data=None,method=None):
+            if path=='labels' or path.endswith('/labels'):return {}
+            if data is None:return list(comments)
+            posts.append(data['body']);comments.append({'user':bot,'body':data['body']});return {}
+        with patch.object(p,'api',side_effect=api):
+            # Three publisher watchers of one run (PR #29, 2026-10-21) post one ping.
+            for _ in range(3):p.label_review(29,'39515983587 1')
+            self.assertEqual(len(posts),1)
+            self.assertIn('@nmamano',posts[0]);self.assertTrue(posts[0].startswith('<!-- bos-review-ping 29 39515983587 1 -->'))
+            # Another run attempt pings again.
+            p.label_review(29,'39515983587 2')
+            self.assertEqual(len(posts),2)
+
 if __name__=='__main__':unittest.main()
 
 class FinalCommentTests(unittest.TestCase):

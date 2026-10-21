@@ -98,7 +98,7 @@ def watch():
                 else:publish_issue(run,artifact)
             except (ValueError, KeyError) as exc:
                 print('Checkpoint requires review:', type(exc).__name__, flush=True)
-                p.label_review(int(match[2]))
+                p.label_review(int(match[2]),f'{run_id} {attempt}')
             seen.add(artifact['id'])
         if run['status']=='completed' or (expected is not None and len(seen)==len(expected)):
             return

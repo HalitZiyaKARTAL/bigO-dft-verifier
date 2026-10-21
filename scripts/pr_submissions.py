@@ -503,7 +503,7 @@ def publish_pr(artifact_override=None, stage="final"):
                 final += '\n\n@nmamano The advisory result blocks or suspends this merged proof; the site must replace its earlier passing status.'
             publish_final_comment(number, marker, final)
         if disposition in ['blocked', 'keep_open']:
-            label_review(number)
+            label_review(number, f'{run_id} {attempt}')
     else:
         s.comment_once(number, comment, api)
     if disposition == 'merge' and not recovering_merge:
@@ -520,7 +520,7 @@ def publish_pr(artifact_override=None, stage="final"):
             if current['head']['sha'] != request['head_sha']:
                 envelope['reason'] = 'A newer commit has its own check; merge skipped'
             else:
-                label_review(number)
+                label_review(number, f'{run_id} {attempt}')
     elif disposition == 'close' and not recovering_merge:
         current = api(f'pulls/{number}')
         if current['head']['sha'] != request['head_sha']:
@@ -528,7 +528,7 @@ def publish_pr(artifact_override=None, stage="final"):
         elif current['state'] == 'open':
             api(f'pulls/{number}', {'state': 'closed'}, method='PATCH')
     elif disposition == 'keep_open' and not recovering_merge and not superseded:
-        label_review(number)
+        label_review(number, f'{run_id} {attempt}')
     Path('published').mkdir(exist_ok=True)
     Path(f'published/pr-submission-{number}{suffix}.json').write_text(s.canonical(envelope) + '\n')
 
@@ -548,7 +548,10 @@ def publish_final_comment(number, marker, body):
     raise ValueError('Final comment lookup exceeds bounded scan; review required')
 
 
-def label_review(number):
+def label_review(number, run_key):
+    """Label the PR and ping the maintainer once per verify run attempt (run_key is
+    '<run id> <attempt>'). Every publisher watcher of a run can reach this; on 2026-10-21
+    three watchers each posted the ping on PR #29."""
     label = 'verification-needs-review'
     try:
         api('labels', {'name': label, 'color': 'd4c5f9', 'description': 'Proof check needs maintainer review'})
@@ -556,7 +559,8 @@ def label_review(number):
         if exc.code != 422:
             raise
     api(f'issues/{number}/labels', {'labels': [label]})
-    api(f'issues/{number}/comments', {'body': '@nmamano This submission stays open because verification or publication needs review.'})
+    marker = f'<!-- bos-review-ping {number} {run_key} -->'
+    s.comment_once(number, marker + '\n@nmamano This submission stays open because verification or publication needs review.', api, key=marker)
 
 
 if __name__ == '__main__':
