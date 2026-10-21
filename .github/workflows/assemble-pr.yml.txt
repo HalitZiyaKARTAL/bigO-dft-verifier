@@ -1,0 +1,47 @@
+name: Assemble PR folder
+on:
+  push:
+    paths: ['dft-HalitZiyaV1_K8ZC-51-changed-files.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set -euo pipefail
+          Z=dft-HalitZiyaV1_K8ZC-51-changed-files.zip
+          if [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          DEST=submissions/dft/halitziyakartal-halitziyav1-k8zc
+          BASE=4263d8faad69c5bd9a17b8d0d3f85fdf68e30165
+          SRC=$(mktemp -d)
+          git -C "$SRC" init -q
+          git -C "$SRC" fetch -q --depth 1 https://github.com/fringewidth/exact-dft-lean "$BASE"
+          git -C "$SRC" checkout -q FETCH_HEAD
+          unzip -o -q "$Z" -d "$SRC"
+          python3 - "$SRC" "$DEST" <<'PY'
+          import os, re, shutil, sys
+          src, dest = sys.argv[1], sys.argv[2]
+          seen, todo = set(), ['Submission.lean']
+          while todo:
+              f = todo.pop()
+              if f in seen: continue
+              seen.add(f)
+              text = open(os.path.join(src, f), encoding='utf-8').read()
+              todo += [m.replace('.', '/') + '.lean' for m in re.findall(r'^import (Submission(?:\.\S+)?)\s*$', text, re.M)]
+          for f in sorted(seen) + ['manifest.json']:
+              os.makedirs(os.path.dirname(os.path.join(dest, f)) or dest, exist_ok=True)
+              shutil.copyfile(os.path.join(src, f), os.path.join(dest, f))
+          print(len(seen) + 1, 'files')
+          PY
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "folder checksum: $SUM"
+          if [ "$SUM" != "b0d610e74b95d52e4a55624f92bcfab0939b5f7f976f7733e7c5ddade7cbe8d9" ]; then echo "checksum mismatch, nothing committed"; exit 1; fi
+          git rm -q "$Z"
+          git add "$DEST"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git commit -q -m "DFT submission: saving 13762761/10000000000"
+          git push
