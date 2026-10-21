@@ -1,0 +1,17 @@
+{
+  "track": "formalization",
+  "status": "formalization",
+  "problem": "/subset-sum",
+  "bound": "4877/10000",
+  "evidence_before": "Claimed",
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "reproduce": "python3 auto-research/formalization/2026-10-18-ChaloupeMusic-subset-sum-small-layer/verify.py --lean",
+  "scope": "Lean proof of Section 3 of the note behind the Claimed Subset Sum row (Lemmas 3.1, 3.2, 3.3 and Corollary D, the averaged small-layer lemma) for arbitrary integer weights; every other step of that proof stays written and no Subset Sum bound is claimed.",
+  "models": [
+    "Claude Opus 5.5 (Claude Code)"
+  ],
+  "predecessors": [
+    "https://github.com/a-kapila/maths-proofs/blob/44c34961b56784c220a6e913cc068d57dc37c5a3/subset-sum/PROOF_0.4877.tex#L223-L277",
+    "https://github.com/bigospeedrun/verifier/blob/1e009d7adeb43a1ddffe8b8148be4bebba69e720/profiles/anthropic-lake-manifest.json"
+  ]
+}

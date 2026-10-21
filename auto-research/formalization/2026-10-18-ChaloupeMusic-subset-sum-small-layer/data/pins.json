@@ -1,0 +1,26 @@
+{
+  "lean_toolchain": "leanprover/lean4:v4.33.1",
+  "mathlib": {
+    "url": "https://github.com/leanprover-community/mathlib4",
+    "rev": "0df444a360eaa60ab8c11dca51a86af692955474",
+    "manifest": "profiles/anthropic-lake-manifest.json",
+    "manifest_sha256": "484af05025301c3920dfeb644f6dbb7f02b05f596bf48831c9324e383694db25"
+  },
+  "source": {
+    "repository": "https://github.com/a-kapila/maths-proofs",
+    "commit": "44c34961b56784c220a6e913cc068d57dc37c5a3",
+    "path": "subset-sum/PROOF_0.4877.tex",
+    "sha256": "b397531cc5997e88c439d5290774861b46a34aa32d9cd71fa7dcced130359298",
+    "lines": "223-277",
+    "section": "3. An averaged small-layer lemma",
+    "pdf_path": "subset-sum/PROOF_0.4877.pdf",
+    "pdf_sha256": "ad63ff62cb66774c7877c4c4888b5036a45811ccb3e0c5accbe0254c68cc1ba4"
+  },
+  "site_row": {
+    "problem": "/subset-sum",
+    "bound": "4877/10000",
+    "evidence": "Claimed",
+    "data": "https://bigospeedrun.com/chat-knowledge.json",
+    "data_updated_at": "2026-10-18T18:17:23Z"
+  }
+}
