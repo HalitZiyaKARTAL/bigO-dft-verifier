@@ -206,7 +206,7 @@ class PRTests(unittest.TestCase):
             old=Path.cwd();os.chdir(tmp)
             try:
                 event=Path('event.json');event.write_text(json.dumps({'workflow_run':{'id':123,'run_attempt':1}}))
-                with patch.dict(os.environ,GITHUB_EVENT_PATH=str(event),GITHUB_SHA='b'*40,GITHUB_RUN_ID='456',GITHUB_RUN_ATTEMPT=publisher_attempt),patch.object(p,'api',side_effect=api),patch.object(p,'inspect_pr',return_value=dict(request,head_sha=pr['head']['sha'])),patch.object(p,'validate_controller',side_effect=p.LayoutError('protected workflow changed') if unsafe else None):
+                with patch.dict(os.environ,GITHUB_EVENT_PATH=str(event),GITHUB_SHA='b'*40,GITHUB_RUN_ID='456',GITHUB_RUN_ATTEMPT=publisher_attempt),patch.object(p,'api',side_effect=api),patch.object(p,'inspect_pr',return_value=dict(request,head_sha=pr['head']['sha'])),patch.object(p,'validate_controller',side_effect=(unsafe if isinstance(unsafe,Exception) else p.LayoutError('protected workflow changed')) if unsafe else None):
                     artifact=api('actions/runs/123/artifacts?per_page=100')['artifacts'][0]
                     p.publish_pr(artifact,stage=stage)
                 result=json.loads(Path('published/pr-submission-7'+suffix+'.json').read_text())
@@ -264,6 +264,14 @@ class PRTests(unittest.TestCase):
         self.assertEqual(result['disposition'],'close')
         self.assertFalse(any(c[0].endswith('/merge') for c in calls))
         self.assertTrue(any(c[2]=='PATCH' and c[1]=={'state':'closed'} for c in calls))
+
+    def test_an_unreadable_trust_list_keeps_the_pr_open_at_publication(self):
+        for stage in ['lean','final']:
+            with self.subTest(stage=stage):
+                result,calls=self.publish_fixture(unsafe=p.TrustUnavailable('Trusted verifier revisions are unavailable (URLError); review required'),stage=stage)
+                self.assertEqual(result['disposition'],'keep_open')
+                self.assertFalse(any(c[0].endswith('/merge') for c in calls))
+                self.assertFalse(any(c[1]=={'state':'closed'} for c in calls))
 
     def test_lean_checkpoint_merges_before_nanoda(self):
         result,calls=self.publish_fixture(stage='lean')
@@ -356,6 +364,117 @@ class PRTests(unittest.TestCase):
             # Another run attempt pings again.
             p.label_review(29,'39515983587 2')
             self.assertEqual(len(posts),2)
+
+
+class ControllerTrustTests(unittest.TestCase):
+    """validate_controller over a fake Git API: a commit must hold exactly the protected files
+    of one trusted verifier revision (the site's direct-trust.json list, or this checkout)."""
+    def setUp(self):
+        for f in [p.commit_tree,p.git_tree,p.recursive_tree,p.protected_entries,p.trusted_controllers]:f.cache_clear()
+        self.addCleanup(lambda:[f.cache_clear() for f in [p.commit_tree,p.git_tree,p.recursive_tree,p.protected_entries,p.trusted_controllers]])
+        old={'scripts/verifier.py':('100644','1'*40),'.github/workflows/verify.yml':('100644','2'*40),'challenges/dft/A.lean':('100644','3'*40)}
+        self.current=dict(old,**{'scripts/verifier.py':('100644','4'*40)})
+        self.commits={'old':dict(old,**{'README.md':('100644','5'*40),'submissions/dft/x/Submission.lean':('100644','6'*40)}),
+                      'current':dict(self.current)}
+        blobs=lambda files:{k:{'sha':v[1],'mode':v[0]} for k,v in files.items() if not k.startswith('submissions/')}
+        self.trust={'controller_blobs':blobs(self.commits['old']),'previous_controller_blobs':{'c'*40:blobs({**self.commits['old'],'scripts/verifier.py':('100644','7'*40)})}}
+        self.trust_raw=json.dumps(self.trust).encode()
+        self.read_error=None
+
+    def api(self,path,*args,**kwargs):
+        if path.startswith('git/commits/'):return {'tree':{'sha':'T|'+path.rsplit('/',1)[1]+'|'}}
+        if path.startswith('git/trees/T|'):
+            ref,recursive=path[len('git/trees/'):].split('?')[0],path.endswith('?recursive=1')
+            _,commit,folder=ref.split('|')
+            prefix=folder+'/' if folder else ''
+            entries,seen=[],set()
+            for name,(mode,sha) in self.commits[commit].items():
+                if not name.startswith(prefix):continue
+                rest=name[len(prefix):].split('/')
+                if recursive:
+                    for i in range(1,len(rest)):
+                        sub='/'.join(rest[:i])
+                        if sub not in seen:seen.add(sub);entries.append({'path':sub,'type':'tree','mode':'040000','sha':'T|'+commit+'|'+prefix+sub})
+                    entries.append({'path':'/'.join(rest),'type':'blob','mode':mode,'sha':sha})
+                elif len(rest)==1:entries.append({'path':rest[0],'type':'blob','mode':mode,'sha':sha})
+                elif rest[0] not in seen:seen.add(rest[0]);entries.append({'path':rest[0],'type':'tree','mode':'040000','sha':'T|'+commit+'|'+prefix+rest[0]})
+            return {'tree':entries,'truncated':False}
+        if path.startswith('issues/') and path.endswith('/comments') or 'comments?' in path:return self.comments(path,*args)
+        raise AssertionError(path)
+
+    def read(self,req,opener,parse,path):
+        # The trust read uses the opener that drops the token on a redirect off api.github.com.
+        assert any(isinstance(h,p.PublicRedirect) for h in opener.__self__.handlers)
+        if self.read_error:raise self.read_error
+        blob=p.blob_sha(self.trust_raw)
+        return {'commits/main':{'sha':'9'*40},'contents/data/direct-trust.json?ref='+'9'*40:{'sha':blob},
+                'git/blobs/'+blob:{'content':__import__('base64').b64encode(self.trust_raw).decode()}}[path]
+
+    def check(self,*commits):
+        with patch.object(p,'api',side_effect=self.api),patch.object(s,'github_read_retry',side_effect=self.read),\
+             patch.object(p,'local_entries',return_value=frozenset((k,)+v for k,v in self.current.items())),patch.dict(os.environ,GH_TOKEN='x'):
+            p.validate_controller(*commits)
+
+    def test_an_older_trusted_revision_passes_and_an_untrusted_one_does_not(self):
+        # A PR branched from an older trusted revision needs no update after a verifier push.
+        self.check('old','current')
+        for i,change in enumerate([{'scripts/verifier.py':('100644','8'*40)},{'scripts/evil.py':('100644','8'*40)},
+                       {'scripts/verifier.py':('100755','1'*40)},{'patches/x.patch':('100644','8'*40)}]):
+            with self.subTest(change=change):
+                self.commits[f'pr{i}']=dict(self.commits['old'],**change)
+                with self.assertRaisesRegex(p.LayoutError,'every trusted'):self.check(f'pr{i}')
+                # The run controller is checked the same way.
+                with self.assertRaisesRegex(p.LayoutError,'every trusted'):self.check('old',f'pr{i}')
+        # A removed protected file is a different revision too.
+        self.commits['removed']={k:v for k,v in self.commits['old'].items() if k!='challenges/dft/A.lean'}
+        with self.assertRaises(p.LayoutError):self.check('removed')
+        # A protected directory that is a symlink or a file is no trusted revision.
+        for mode in ['120000','100644']:
+            with self.subTest(mode=mode):
+                self.commits['flat'+mode]={k:v for k,v in self.commits['old'].items() if not k.startswith('scripts/')}
+                self.commits['flat'+mode]['scripts']=(mode,'8'*40)
+                with self.assertRaisesRegex(p.LayoutError,'every trusted'):self.check('flat'+mode)
+        # Files outside the protected directories do not matter.
+        self.commits['readme']=dict(self.commits['old'],**{'README.md':('100644','8'*40)})
+        self.check('readme')
+
+    def test_an_unreadable_trust_list_keeps_the_pr_open(self):
+        import urllib.error
+        import http.client
+        for error in [urllib.error.URLError('down'),ValueError('bad'),ConnectionResetError('reset'),TimeoutError('slow'),http.client.IncompleteRead(b'x')]:
+            with self.subTest(error=error):
+                self.read_error=error;p.trusted_controllers.cache_clear()
+                with self.assertRaises(p.TrustUnavailable) as ctx:self.check('old')
+                self.assertNotIsInstance(ctx.exception,p.LayoutError)
+        # A trust blob that does not match its hash is refused.
+        self.read_error=None;self.trust_raw=b'{}';p.trusted_controllers.cache_clear()
+        real=self.read
+        self.read=lambda req,o,r,path:dict(real(req,o,r,path),sha='0'*40) if path.startswith('contents/') else real(req,o,r,path)
+        with self.assertRaises(p.TrustUnavailable):self.check('old')
+
+    def test_selection_spends_no_run_on_an_untrusted_branch_and_asks_once(self):
+        self.commits['pr']=dict(self.commits['old'],**{'scripts/verifier.py':('100644','8'*40)})
+        posted,comments=[],[]
+        def comment_api(path,data=None,*args):
+            if data is None:return list(comments)
+            posted.append(data['body']);comments.append({'user':{'login':'github-actions[bot]','type':'Bot'},'body':data['body']});return {}
+        self.comments=comment_api
+        pr={'number':7,'head':{'sha':'pr'},'base':{'sha':'b'*40},'user':{'login':'alice'}}
+        class Lease:
+            def admitted(self,key):return False
+        api=lambda path,*a,**k:pr if path=='pulls/7' else self.api(path,*a,**k)
+        with patch.object(p,'api',side_effect=api),patch.object(s,'github_read_retry',side_effect=self.read),\
+             patch.object(p,'local_entries',return_value=frozenset((k,)+v for k,v in self.current.items())),\
+             patch.object(p,'proof_candidate',return_value=True),patch.object(p,'inspect_pr',return_value={'head_sha':'pr'}),\
+             patch.object(s,'current_record') as record,patch.dict(os.environ,GH_TOKEN='x',GITHUB_SHA='b'*40):
+            for _ in range(2):self.assertIsNone(p.select_candidate({'number':7},Lease()))
+            record.assert_not_called()
+            self.assertEqual(len(posted),1);self.assertIn('Update branch',posted[0])
+            self.assertTrue(posted[0].startswith('<!-- bos-stale-controller-v1 7 pr -->'))
+            # A branch from an older trusted revision is selected.
+            pr['head']['sha']='old'
+            with patch.object(p,'inspect_pr',return_value={'head_sha':'old','submission':{'problem':'dft'},'pr_url':'u'}),patch.object(s,'qualifies_for_run',return_value=True):
+                self.assertEqual(p.select_candidate({'number':7},Lease())['gate'],'ready')
 
 if __name__=='__main__':unittest.main()
 

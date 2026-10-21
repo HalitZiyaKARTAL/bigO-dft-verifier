@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -39,14 +40,20 @@ def api(path, data=None, method=None, raw=False):
         headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
                  'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
                  'X-GitHub-Api-Version': '2022-11-28'})
-    class PublicRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, request, fp, code, msg, headers, newurl):
-            redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
-            if urllib.parse.urlsplit(newurl).netloc != 'api.github.com':
-                redirected.remove_header('Authorization')
-            return redirected
-    opener = urllib.request.build_opener(PublicRedirect)
-    return s.github_read_retry(req, opener.open, bounded_read if raw else json.load, path)
+    return s.github_read_retry(req, github_opener().open, bounded_read if raw else json.load, path)
+
+
+class PublicRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
+        if urllib.parse.urlsplit(newurl).netloc != 'api.github.com':
+            redirected.remove_header('Authorization')
+        return redirected
+
+
+def github_opener():
+    """An opener that does not send the token to a redirect target outside api.github.com."""
+    return urllib.request.build_opener(PublicRedirect)
 
 
 def bounded_read(response):
@@ -233,14 +240,84 @@ def protected_files():
                   for p in (ROOT / parent).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
 
 
-def validate_controller(head, base):
-    # The publisher does not check out PR code. It compares Git blob identities.
-    for path in protected_files():
-        expected = blob_sha((ROOT / path).read_bytes())
-        for commit in [head, base]:
-            entry = file_at(commit, path)
-            if not entry or entry['mode'] != '100644' or entry['sha'] != expected:
-                raise LayoutError('PR workflow/controller differs from the trusted publisher revision')
+PROTECTED_DIRS = ('.github/workflows', 'scripts', 'profiles', 'challenges', 'patches')
+SITE_TRUST = 'data/direct-trust.json'
+
+
+class TrustUnavailable(ValueError):
+    """The trusted revision list could not be read: keep the PR open for review, never close it."""
+
+
+def protected(path):
+    return any(path.startswith(d + '/') for d in PROTECTED_DIRS)
+
+
+@lru_cache(maxsize=256)
+def recursive_tree(sha):
+    listing = api(f'git/trees/{sha}?recursive=1')
+    if listing.get('truncated'):
+        raise LayoutError('Truncated Git tree')
+    return listing
+
+
+@lru_cache(maxsize=64)
+def protected_entries(commit):
+    """(path, mode, sha) of every non-tree entry under the protected directories of a commit."""
+    found = []
+    for folder in PROTECTED_DIRS:
+        entry = file_at(commit, folder)
+        if entry is None:
+            continue
+        if entry['type'] != 'tree':
+            found.append((folder, entry['mode'], entry['sha']))
+            continue
+        found += [(folder + '/' + e['path'], e['mode'], e['sha']) for e in recursive_tree(entry['sha'])['tree'] if e['type'] != 'tree']
+    return frozenset(found)
+
+
+def local_entries():
+    return frozenset((path, '100644', blob_sha((ROOT / path).read_bytes())) for path in protected_files())
+
+
+@lru_cache(maxsize=1)
+def trusted_controllers():
+    """The protected files of every trusted verifier revision: this checkout, and every
+    revision that the site lists in data/direct-trust.json at its current main commit
+    (controller_blobs and previous_controller_blobs). The site pushes a trust entry before
+    each verifier push, so a PR or a run from an older trusted revision still matches."""
+    def read(path):
+        req = urllib.request.Request('https://api.github.com/repos/bigospeedrun/site/' + path,
+                                     headers={'Accept': 'application/vnd.github+json',
+                                              'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
+        return s.github_read_retry(req, github_opener().open, json.load, path)
+    try:
+        sha = read('commits/main')['sha']
+        if not SHA.fullmatch(sha):
+            raise ValueError('Invalid site commit')
+        blob = read(f'contents/{SITE_TRUST}?ref={sha}')['sha']
+        if not SHA.fullmatch(blob):
+            raise ValueError('Invalid trust blob')
+        raw = base64.b64decode(read(f'git/blobs/{blob}')['content'], validate=False)
+        if blob_sha(raw) != blob:
+            raise ValueError('Trust blob hash mismatch')
+        trust = json.loads(raw)
+        revisions = [trust['controller_blobs'], *trust['previous_controller_blobs'].values()]
+        known = {frozenset((path, e['mode'], e['sha']) for path, e in blobs.items() if protected(path)) for blobs in revisions}
+    # OSError covers URLError, ConnectionError and TimeoutError; HTTPException covers IncompleteRead.
+    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise TrustUnavailable(f'Trusted verifier revisions are unavailable ({type(exc).__name__}); review required') from None
+    return frozenset(known | {local_entries()})
+
+
+def validate_controller(*commits):
+    # The publisher does not check out PR code. It compares Git blob identities. Each commit
+    # (the PR head, and the controller of the run) must hold exactly the protected files of
+    # one trusted verifier revision, so a PR cannot change them to anything untrusted, and a
+    # PR or run from an older trusted revision needs no update after a verifier push.
+    trusted = trusted_controllers()
+    for commit in commits:
+        if protected_entries(commit) not in trusted:
+            raise LayoutError('PR workflow/controller differs from every trusted verifier revision')
 
 
 def proof_candidate(pr):
@@ -267,6 +344,18 @@ def select_candidate(issue, lease):
         'pr_submitter_login': pr['user']['login'], 'test_only': False}
     try:
         selected = inspect_pr(pr)
+        try:
+            validate_controller(selected['head_sha'])
+        except LayoutError:
+            # An honest branch from a verifier revision that is not trusted (for example a
+            # revision between two reviewed pushes). Spend no run and do not admit this head:
+            # ask once for a branch update; the updated head is checked at a later scan.
+            marker = f"<!-- bos-stale-controller-v1 {pr['number']} {pr['head']['sha']} -->"
+            s.comment_once(pr['number'], marker + '\nThis PR branch has verifier scripts that match no trusted verifier revision, so no proof run starts. '
+                           'Please click "Update branch" on this PR; your submission files do not change.', api, key=marker)
+            return None
+        except TrustUnavailable:
+            return None
         record = s.current_record(selected['submission']['problem'], selected['pr_url'])
         selected['record_gate'] = record
         selected.update(gate='ready' if s.qualifies_for_run(selected['submission'], record) else 'claimed_only', reason='record_gate')
