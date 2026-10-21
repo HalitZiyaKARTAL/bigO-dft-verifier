@@ -326,6 +326,29 @@ class SubmissionTests(unittest.TestCase):
 
 
 
+class BoundDigitsTests(unittest.TestCase):
+    """At most 40 digits per integer (Nil, 2026-10-21; issue #35 needed 19)."""
+    def sub(self, problem, bound):
+        return {'schema_version': 1, 'problem': problem, 'bound': bound, 'repo_url': 'https://github.com/a/b', 'commit': 'a' * 40, 'authors': []}
+
+    def test_19_and_40_digits_are_accepted_and_41_is_not(self):
+        for problem, bound in [('3sum', '4800698571997281331/2500000000000000000'), ('dft', '1/' + '9' * 40),
+                               ('dft', '1' + '0' * 38 + '1/' + '3' + '0' * 39)]:
+            with self.subTest(bound=bound):
+                self.assertEqual(s.validate_submission(self.sub(problem, bound))['bound'], bound)
+                # The Lean target holds the exact integers, with no rounding.
+                n, d = bound.split('/')
+                source = s.challenge_source(self.sub(problem, bound))
+                self.assertIn(n, source); self.assertIn(d, source)
+        for bound in ['9' * 41, '1/' + '9' * 41, '1' + '0' * 40 + '/3']:
+            with self.subTest(bound=bound), self.assertRaisesRegex(ValueError, 'at most 40 digits'):
+                s.validate_submission(self.sub('dft', bound))
+        # The gate compares exact fractions: a 19-digit bound just below the gate qualifies.
+        record = {'score': '192027945701/100000000000', 'score_relation': 'attained', 'any_lean_verified_at_bound': True}
+        self.assertTrue(s.qualifies_for_run(self.sub('3sum', '4800698571997281331/2500000000000000000'), record))
+        self.assertFalse(s.qualifies_for_run(self.sub('3sum', '4800698642525000001/2500000000000000000'), record))
+
+
 class AcknowledgeTests(unittest.TestCase):
     """Every open submission gets one reply per version at the next scan (issue #35, 2026-10-21)."""
     def run_ack(self, items, comments, pulls=None, proof=True, race=None):
@@ -359,15 +382,15 @@ class AcknowledgeTests(unittest.TestCase):
         return {'number': number, 'title': s.TITLE + ' x', 'state': 'open', 'body': body}
 
     def test_a_form_error_is_answered_once_per_version(self):
-        item = self.issue(35, '4800698571997281331/2500000000000000000')
+        item = self.issue(35, '1/' + '9' * 41)
         comments = {}
         posts = self.run_ack([item], comments)
         self.assertEqual(len(posts), 1)
-        self.assertIn('an integer or a fraction p/q (no decimals), with at most 18 digits in each', posts[0][1])
+        self.assertIn('an integer or a fraction p/q (no decimals), with at most 40 digits in each', posts[0][1])
         self.assertTrue(posts[0][1].startswith(s.ACK + '35 ' + s.body_hash(item['body'])))
         self.assertEqual(self.run_ack([item], comments), [])
         # An edited body is a new version and gets a new reply.
-        edited = dict(item, body=item['body'].replace('4800698571997281331/2500000000000000000', '1/3'))
+        edited = dict(item, body=item['body'].replace('1/' + '9' * 41, '1/3'))
         self.assertEqual(len(self.run_ack([edited], comments)), 1)
 
     def test_a_valid_submission_with_an_earlier_reply_is_skipped(self):

@@ -36,8 +36,9 @@ def validate_submission(value):
     profiles = json.loads((ROOT / 'profiles/direct.json').read_text())
     if not isinstance(value['problem'], str) or value['problem'] not in profiles:
         raise ValueError('Supported problems: dft, 3sum, apsp')
-    if not isinstance(value['bound'], str) or not re.fullmatch(r'(?:0|[1-9][0-9]{0,17})(?:/[1-9][0-9]{0,17})?', value['bound']):
-        raise ValueError('bound must be an integer or a fraction p/q (no decimals), with at most 18 digits in each')
+    # At most 40 digits per integer (Nil, 2026-10-21: a reduced 3SUM bound needed 19, issue #35).
+    if not isinstance(value['bound'], str) or not re.fullmatch(r'(?:0|[1-9][0-9]{0,39})(?:/[1-9][0-9]{0,39})?', value['bound']):
+        raise ValueError('bound must be an integer or a fraction p/q (no decimals), with at most 40 digits in each')
     bound = Fraction(value['bound'])
     if not 0 <= bound <= Fraction(profiles[value['problem']]['maximum']):
         raise ValueError('bound is outside the problem range')
