@@ -37,7 +37,7 @@ def validate_submission(value):
     if not isinstance(value['problem'], str) or value['problem'] not in profiles:
         raise ValueError('Supported problems: dft, 3sum, apsp')
     if not isinstance(value['bound'], str) or not re.fullmatch(r'(?:0|[1-9][0-9]{0,17})(?:/[1-9][0-9]{0,17})?', value['bound']):
-        raise ValueError('bound must be a nonnegative rational string, with at most 18 digits per integer')
+        raise ValueError('bound must be an integer or a fraction p/q (no decimals), with at most 18 digits in each')
     bound = Fraction(value['bound'])
     if not 0 <= bound <= Fraction(profiles[value['problem']]['maximum']):
         raise ValueError('bound is outside the problem range')
@@ -330,12 +330,98 @@ def select():
         SCAN_BUDGET = None
 
 
+ACK = '<!-- bos-ack-v1 '
+ACK_LIMIT = 30  # Newest open issues and PRs acknowledged per scan.
+ACK_CALLS = 120  # The pass's own API cap and time cap: the selection after it keeps the rest of the budget.
+ACK_SECONDS = 60
+
+
+class AckLimit(RuntimeError):
+    pass
+
+
+def acknowledge():
+    """Reply once to each open submission issue (per body version) and each open PR (per head) that
+    has no bot reply for that version yet. It runs before the queue lease, so a submission gets an
+    answer at the next scan even while another proof run holds the queue (issue #35, 2026-10-21: a
+    form error left the issue without any reply for 10 h)."""
+    import pr_submissions as pr
+    budget = {'calls': 0, 'deadline': time.monotonic() + ACK_SECONDS}
+
+    def call(path, data=None, method=None):
+        if budget['calls'] >= ACK_CALLS or time.monotonic() >= budget['deadline']:
+            raise AckLimit('acknowledgement budget used')
+        budget['calls'] += 1
+        return api(path, data, method)
+
+    def bot_comments(number):
+        """Bot comments of an item, oldest first, from at most 10 pages; None when the thread is longer."""
+        found = []
+        for page in range(1, 11):
+            batch = call(f'issues/{number}/comments?per_page=100&page={page}')
+            found += [c for c in batch if is_bot(c)]
+            if len(batch) < 100:
+                return found
+        return None
+
+    for item in call(f'issues?state=open&sort=created&direction=desc&per_page={ACK_LIMIT}'):
+        number = item['number']
+        if 'pull_request' in item:
+            budget['calls'] += 1
+            pull = pr.api(f'pulls/{number}')
+            version, known = pull['head']['sha'], [pull['head']['sha']]
+        elif item.get('title', '').startswith(TITLE):
+            version = body_hash(item.get('body') or '')
+            try:
+                submission = issue_input(item)
+            except ValueError as error:
+                submission, known = error, []
+            else:
+                if submission is None:
+                    continue
+                known = [submission_hash(submission)]
+        else:
+            continue
+        marker = ACK + str(number) + ' ' + version + ' -->'
+        replies = bot_comments(number)
+        # A thread longer than 10 pages: do not post (a reply could be on a later page).
+        # A version that already has its acknowledgement, or a result or claimed reply, needs none.
+        if replies is None or any(k in (c.get('body') or '') for c in replies for k in [marker, *known]):
+            continue
+        if 'pull_request' in item:
+            budget['calls'] += 3
+            text = ('Received. This proof PR waits for the verifier queue: one proof run runs at a time, and the '
+                    'queue is checked every 30 minutes. The result is posted here.' if pr.proof_candidate(pull) else
+                    'Received. This PR changes no submissions/ folder, so it starts no proof run. A maintainer '
+                    'reviews it and answers here.')
+        elif isinstance(submission, ValueError):
+            text = ('Received, but this submission cannot start a proof run: ' + str(submission) + '. Edit this '
+                    'issue to fix the form; the edit starts a new check.')
+        else:
+            text = ('Received. The verifier checks submissions every 30 minutes and runs one proof at a time, '
+                    'so this run can wait for the current one. The result is posted here.')
+        posted = call(f'issues/{number}/comments', {'body': marker + '\n' + text})
+        # Two runs can overlap (an issue event and the schedule). Keep only the oldest reply with this
+        # marker: delete ours when an older one exists.
+        replies = bot_comments(number) or []
+        same = sorted((c for c in replies if (c.get('body') or '').startswith(marker)), key=lambda c: c['id'])
+        if len(same) > 1 and posted.get('id') != same[0]['id'] and any(c['id'] == posted.get('id') for c in same):
+            try:
+                call(f'issues/comments/{int(posted["id"])}', method='DELETE')
+            except ValueError:
+                pass  # 204 No Content: the delete succeeded; there is no JSON body to read.
+
+
 def select_bounded():
     """One trusted batch; resumable 40-candidate/4-minute scan, ten accounts."""
     import queue_lease
     import pr_submissions as pr
     selected, authors = [], set()
     selection_outputs(selected)
+    try:
+        acknowledge()
+    except Exception as error:  # A non-critical pass: any error stops only the pass, never the selection.
+        print('Acknowledgement pass stopped: ' + type(error).__name__, flush=True)
     import smoke
     lease = queue_lease.acquire(queue_lease.SMOKE_REF) if smoke.requested() else queue_lease.acquire()
     if lease is None:

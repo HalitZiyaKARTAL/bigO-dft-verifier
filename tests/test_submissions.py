@@ -218,7 +218,7 @@ class SubmissionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             old=Path.cwd();os.chdir(tmp)
             try:
-                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(queue_lease,'acquire',return_value=Mock(state={'page':1,'offset':0},admitted=Mock(return_value=False))),patch.object(s,'current_record',return_value=record),patch.object(s,'api',side_effect=lambda p,data=None: posts.append(data) if data is not None else issues if p.startswith('issues?') else []):
+                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(queue_lease,'acquire',return_value=Mock(state={'page':1,'offset':0},admitted=Mock(return_value=False))),patch.object(s,'current_record',return_value=record),patch.object(s,'api',side_effect=lambda p,data=None: posts.append(data) if data is not None else issues if p.startswith('issues?') else []),patch.object(s,'acknowledge'):
                     s.select()
                 self.assertEqual(len(list(Path('requests').glob('*.json'))),9)
                 self.assertTrue(Path('requests/13.json').exists())
@@ -324,5 +324,106 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(v.plan_sources(stage,'Submission'),[['Submission.A','Submission']])
         self.assertIn('0df444a360eaa60ab8c11dca51a86af692955474',v.lakefile(['Submission'],'profiles/anthropic-lake-manifest.json'))
 
+
+
+class AcknowledgeTests(unittest.TestCase):
+    """Every open submission gets one reply per version at the next scan (issue #35, 2026-10-21)."""
+    def run_ack(self, items, comments, pulls=None, proof=True, race=None):
+        posts, deleted, self.proof_calls = [], [], 0
+        ids = iter(range(1000, 2000))
+        def api(path, data=None, method=None):
+            if method == 'DELETE':
+                deleted.append(int(path.rsplit('/', 1)[1])); raise ValueError('empty 204 body')
+            if data is not None:
+                n = path.split('/')[1]; c = {'id': next(ids), 'user': BOT, 'body': data['body']}
+                posts.append((path, data['body'])); comments.setdefault(n, []).append(c)
+                if race:  # Another run posted the same reply first (an older id).
+                    comments[n].insert(0, {'id': 5, 'user': BOT, 'body': data['body']})
+                return dict(c)
+            if path.startswith('issues?'):return items
+            if '/comments?' in path:
+                n = path.split('/')[1]; page = int(path.rsplit('page=', 1)[1])
+                return list(comments.get(n, []))[100 * (page - 1):100 * page]
+            raise AssertionError(path)
+        def candidate(pull):
+            self.proof_calls += 1; return proof
+        import pr_submissions as pr
+        with patch.object(s, 'api', side_effect=api), patch.object(pr, 'api', side_effect=lambda path: (pulls or {})[path]), \
+             patch.object(pr, 'proof_candidate', side_effect=candidate):
+            s.acknowledge()
+        self.deleted = deleted
+        return posts
+
+    def issue(self, number, bound='1/2'):
+        body = f'### Problem\n\ndft\n\n### Repository URL\n\nhttps://github.com/a/b\n\n### Commit SHA\n\n{"a"*40}\n\n### Bound\n\n{bound}'
+        return {'number': number, 'title': s.TITLE + ' x', 'state': 'open', 'body': body}
+
+    def test_a_form_error_is_answered_once_per_version(self):
+        item = self.issue(35, '4800698571997281331/2500000000000000000')
+        comments = {}
+        posts = self.run_ack([item], comments)
+        self.assertEqual(len(posts), 1)
+        self.assertIn('an integer or a fraction p/q (no decimals), with at most 18 digits in each', posts[0][1])
+        self.assertTrue(posts[0][1].startswith(s.ACK + '35 ' + s.body_hash(item['body'])))
+        self.assertEqual(self.run_ack([item], comments), [])
+        # An edited body is a new version and gets a new reply.
+        edited = dict(item, body=item['body'].replace('4800698571997281331/2500000000000000000', '1/3'))
+        self.assertEqual(len(self.run_ack([edited], comments)), 1)
+
+    def test_a_valid_submission_with_an_earlier_reply_is_skipped(self):
+        item = self.issue(36)
+        digest = s.submission_hash(s.issue_input(item))
+        comments = {'36': [{'id': 1, 'user': BOT, 'body': '<!-- bos-claimed-v1 36 ' + digest + ' -->'}]}
+        self.assertEqual(self.run_ack([item], comments), [])
+        # A person's comment is no reply.
+        comments = {'36': [{'id': 1, 'user': {'login': 'x', 'type': 'User'}, 'body': digest}]}
+        posts = self.run_ack([item], comments)
+        self.assertEqual(len(posts), 1); self.assertIn('Received.', posts[0][1])
+
+    def test_prs_are_answered_by_kind_and_other_issues_are_skipped(self):
+        pr_item = {'number': 40, 'title': 'audit: x', 'pull_request': {}}
+        other = {'number': 41, 'title': 'A question', 'state': 'open', 'body': 'hi'}
+        pulls = {'pulls/40': {'number': 40, 'head': {'sha': 'c' * 40}, 'changed_files': 1}}
+        posts = self.run_ack([pr_item, other], {}, pulls, proof=False)
+        self.assertEqual(len(posts), 1); self.assertIn('starts no proof run', posts[0][1])
+        posts = self.run_ack([pr_item], {}, pulls, proof=True)
+        self.assertIn('verifier queue', posts[0][1])
+        # A result comment that names the head counts as the reply, and the PR files are not read for it.
+        self.assertEqual(self.run_ack([pr_item], {'40': [{'id': 1, 'user': BOT, 'body': '<!-- bos-pr-v2 40 ' + 'c' * 40 + ' -->'}]}, pulls), [])
+        self.assertEqual(self.proof_calls, 0)
+
+    def test_an_overlapping_run_leaves_one_reply(self):
+        # Two runs post the same marker: the newer reply (this run's) is deleted, the oldest stays.
+        comments = {}
+        posts = self.run_ack([self.issue(37)], comments, race=True)
+        self.assertEqual(len(posts), 1); self.assertEqual(self.deleted, [1000])
+        # Alone, a run deletes nothing.
+        self.run_ack([self.issue(38)], {}); self.assertEqual(self.deleted, [])
+
+    def test_a_thread_longer_than_ten_pages_gets_no_reply(self):
+        other = [{'id': i, 'user': {'login': 'x', 'type': 'User'}, 'body': 'x'} for i in range(1000)]
+        self.assertEqual(self.run_ack([self.issue(39)], {'39': other}), [])
+        # Nine full pages and a short tenth page are read: the reply on page 5 counts.
+        item = self.issue(42); marker = s.ACK + '42 ' + s.body_hash(item['body']) + ' -->'
+        long = other[:950]; long[450] = {'id': 9999, 'user': BOT, 'body': marker}
+        self.assertEqual(self.run_ack([item], {'42': long}), [])
+
+    def test_the_pass_has_its_own_cap(self):
+        items = [self.issue(n) for n in range(100, 130)]
+        with patch.object(s, 'ACK_CALLS', 7):
+            with self.assertRaises(s.AckLimit):
+                self.run_ack(items, {})
+
+    def test_an_error_stops_only_the_acknowledgement_pass(self):
+        import http.client
+        for error in [OSError('down'), http.client.IncompleteRead(b'x'), RuntimeError('x'), s.AckLimit('cap')]:
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as tmp, \
+                 patch.dict(os.environ, GITHUB_OUTPUT=str(Path(tmp) / 'output')), \
+                 patch.object(s, 'acknowledge', side_effect=error), patch.object(queue_lease, 'acquire', return_value=None) as acquire:
+                s.select_bounded()
+                acquire.assert_called_once()  # Selection continues to the lease after the failed pass.
+
+
+BOT = {'login': 'github-actions[bot]', 'type': 'Bot'}
 
 if __name__=='__main__':unittest.main()
