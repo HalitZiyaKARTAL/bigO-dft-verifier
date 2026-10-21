@@ -390,6 +390,14 @@ def sandbox_args(config_write=False):
     return args
 
 
+# Lean starts one more worker thread each time a pool task waits on another task (Task.get,
+# IO.wait), with no upper bound (src/runtime/object.cpp, task_manager::wait_for). One large
+# module can so need hundreds of threads: on 2026-10-21 PR #29 (one 1.8 MB module of 694
+# decide theorems) failed with "failed to create thread" at TasksMax=512. MemoryMax still
+# bounds the memory of these threads.
+TASKS_MAX = 4096
+
+
 def prepare_nanoda_swap():
     # Comparator retains its parsed proof while its external kernel runs.
     # Swap lets those idle pages leave RAM on the standard hosted runner.
@@ -444,9 +452,9 @@ print('Network/process namespaces, credential visibility, and read-only mounts p
                 '--uid=' + str(os.getuid()), '--gid=' + str(os.getgid()),
                 '--property=RestrictAddressFamilies=~AF_UNIX', '--property=Nice=10',
                 '--property=CPUQuota=400%', '--property=MemoryMax=14G', '--property=MemorySwapMax=' + str(swap_limit),
-                '--property=RuntimeMaxSec=' + str(remaining), '--property=TasksMax=512', *command_args]
+                '--property=RuntimeMaxSec=' + str(remaining), '--property=TasksMax=' + str(TASKS_MAX), *command_args]
         print(f'{kernel}: isolated check started', flush=True)
-        start, peak, swap_peak, guard_stop = time.monotonic(), 0, 0, None
+        start, peak, swap_peak, tasks_peak, guard_stop = time.monotonic(), 0, 0, 0, None
         with (ART / f'{kernel}.log').open('w') as log:
             proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
             while proc.poll() is None:
@@ -455,6 +463,9 @@ print('Network/process namespaces, credential visibility, and read-only mounts p
                 except (FileNotFoundError, ValueError): pass
                 try: swap_peak = max(swap_peak, int(memory.with_name('memory.swap.current').read_text()))
                 except (FileNotFoundError, ValueError): pass
+                for name in ['pids.peak', 'pids.current']:
+                    try: tasks_peak = max(tasks_peak, int(memory.with_name(name).read_text()))
+                    except (FileNotFoundError, ValueError): pass
                 if shutil.disk_usage(WORK).free < 1024**3:
                     guard_stop = 'disk space below 1 GiB'
                     subprocess.run(['sudo', 'systemctl', 'stop', unit], check=False, stdout=log, stderr=log)
@@ -466,6 +477,7 @@ print('Network/process namespaces, credential visibility, and read-only mounts p
                   'exit_code': code, 'wall_seconds': round(time.monotonic() - start, 3),
                   'sampled_peak_cgroup_bytes': peak, 'memory_limit_bytes': 14 * 1024**3,
                   'sampled_peak_swap_bytes': swap_peak, 'swap_limit_bytes': swap_limit,
+                  'sampled_peak_tasks': tasks_peak, 'tasks_limit': TASKS_MAX,
                   'guard_stop': guard_stop, 'log': kernel + '.log'}
         text = (ART / f'{kernel}.log').read_text(errors='replace')
         if kernel != 'audit':
