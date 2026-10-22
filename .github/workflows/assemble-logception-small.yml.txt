@@ -1,0 +1,38 @@
+name: Assemble logception PR branch (small)
+on:
+  push:
+    paths: ['log2-delta.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          set -euo pipefail
+          Z=log2-delta.zip
+          if [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          DEST=submissions/dft/halitziyakartal-halitziyav4-logception
+          SRC=submissions/dft/jacobalansussman-lever-2979-full-cut
+          BRANCH=pr-halitziyav4-logception
+          BASE=bf0ea2aa30311d3679caf40fa759a0548b2c8e25
+          D="$RUNNER_TEMP/delta"
+          mkdir -p "$D"
+          unzip -q "$Z" -d "$D"
+          git fetch -q https://github.com/bigospeedrun/verifier "$BASE"
+          git checkout -q -B "$BRANCH" FETCH_HEAD
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          while IFS= read -r f; do mkdir -p "$DEST/$(dirname "$f")"; cp "$SRC/$f" "$DEST/$f"; done < "$D/keep.txt"
+          cp -r "$D/files/." "$DEST/"
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "folder checksum: $SUM"
+          if [ "$SUM" != "472584c77592f0354ed289c21ed206997fbcc8ebe0032a6340a978ad624c60bc" ]; then echo "checksum mismatch, nothing pushed"; exit 1; fi
+          git add "$DEST"
+          git -c user.name="${{ github.actor }}" -c user.email="${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com" commit -q -m "DFT submission: saving 30103/10000000"
+          git push -q -f origin "$BRANCH"
+          echo "pushed branch $BRANCH: open the pull request from it"
