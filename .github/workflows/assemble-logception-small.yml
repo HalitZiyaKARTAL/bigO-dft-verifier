@@ -1,7 +1,7 @@
 name: Assemble logception PR branch (small)
 on:
   push:
-    paths: ['log2-delta.zip']
+    paths: ['log2-delta*.zip', '.github/workflows/assemble-logception-small.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -14,8 +14,9 @@ jobs:
           fetch-depth: 0
       - run: |
           set -euo pipefail
-          Z=log2-delta.zip
-          if [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          Z=$(ls -1 log2-delta*.zip 2>/dev/null | head -n 1 || true)
+          if [ -z "$Z" ] || [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          echo "using zip: $Z"
           DEST=submissions/dft/halitziyakartal-halitziyav4-logception
           SRC=submissions/dft/jacobalansussman-lever-2979-full-cut
           BRANCH=pr-halitziyav4-logception
