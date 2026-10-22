@@ -45,8 +45,8 @@ bound below the gate stays Claimed and starts no Lean run. A tie qualifies unles
 a tied leader already has Lean Verified evidence. Preserve separate author rows.
 Never check out fork workflow code. Keep action pins and strict input checks.
 
-Current phase: local review only. Do not create public repositories, push,
-open PRs, or publish the workflow until the lead confirms README approval.
+This repository is public. Proof submissions (issues and PRs) and research PRs
+from anyone are welcome: see README.md#submit and auto-research.md.
 Tests under tests/fixtures/direct are test-only and must not enter site data.
 
 To propose a trusted statement for a problem that has none, see
