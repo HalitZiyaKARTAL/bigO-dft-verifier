@@ -50,7 +50,7 @@ class QueueSecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             old=Path.cwd();os.chdir(tmp)
             try:
-                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(q,'acquire',return_value=lease),patch.object(s,'api',side_effect=api):
+                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(q,'acquire',return_value=lease),patch.object(s,'api',side_effect=api),patch.object(s,'acknowledge'):
                     s.select()
                     self.assertEqual(lease.state,{'page':1,'offset':40})
                     self.assertLessEqual(len(calls),41)
@@ -87,7 +87,7 @@ class QueueSecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             old=Path.cwd();os.chdir(tmp)
             try:
-                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(q,'acquire',return_value=lease),patch.object(s,'api',side_effect=api),patch.object(s,'current_record') as record:
+                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(q,'acquire',return_value=lease),patch.object(s,'api',side_effect=api),patch.object(s,'current_record') as record,patch.object(s,'acknowledge'):
                     s.select()
                     s.select()  # A second cursor cycle still cannot replay it.
                 self.assertFalse(Path('requests/42.json').exists())

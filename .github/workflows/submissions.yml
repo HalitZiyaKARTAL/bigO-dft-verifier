@@ -24,7 +24,8 @@ jobs:
     permissions:
       contents: write
       issues: write
-      pull-requests: read
+      # write: the acknowledgement pass replies on PRs too (an issue comment on a PR needs it).
+      pull-requests: write
       actions: read
     outputs:
       selected: ${{ steps.select.outputs.selected }}

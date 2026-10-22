@@ -1,0 +1,17 @@
+{
+  "algorithm": "sha256",
+  "sha256": {
+    "NOTICE.md": "82638c2a6354eea025dd480ddea81917811ad90d7e5e3b351b2afa5255e3989c",
+    "README.md": "1c17156ececa6abd8abec0d90366cb7633cab3cb735f78999d7232979f6b4e0e",
+    "RESULT.json": "092fbb440321baf3066ee9a0ee169b4df553ee43cd8d22ae0b8dcdd8c8a20c38",
+    "data/board.md": "0459dbb5fe171eb644e739655390e6a3595df7a57ebb33fca7ffca326ec1a667",
+    "data/certificate.json": "fd0b9686fe3da922d34dc40f775fb8d8e2c0a900b56fd90afcfbb09ca63b3405",
+    "data/selection.json": "4ccc2b177276c35c1077db9dee2fce629c839005fac4a36aa6e30c6628630efa",
+    "data/site-record.json": "8c854cfc8a538371e9f841aa9ec4b125ad1c0934af92019ca2c22d8560ffa7fe",
+    "data/source-pins.json": "1bff462d435e685cc06432be430d4661f0b8f953d3bca58c5b2108e81e23ec05",
+    "upstream/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "upstream/NOTICE": "4bae572349f9a7109c4c9ef7ad9ad1ca7efd64c1721cb705dc28097ace161bbc",
+    "upstream/verify_certificate.py": "61a62cea4e0ae61121046a0c5587b56b025ce176e61f7c290e6bef4a9765aa72",
+    "verify.py": "e9a30d892d2cc90c3d9b9fa9b11b9f31d23ecaa4fa6198e2ed89cf19c3bba0fa"
+  }
+}

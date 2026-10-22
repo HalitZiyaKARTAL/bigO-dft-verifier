@@ -1,0 +1,44 @@
+{
+  "repository": "https://github.com/canghaimeng/openai-math-improvement",
+  "commit": "b3c7abea0d5e392777498816ca837eded8b85669",
+  "files": [
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132/paper.pdf",
+      "embedded_path": null,
+      "sha256": "9d9e614aa8b07ca0f72bbfb48484ef39e51977b8f1a45641269f968cb345c2fa",
+      "bytes": 317090
+    },
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132/README.md",
+      "embedded_path": null,
+      "sha256": "1065e039555be6d70b00bd653dd67c2db136319f93b4b327374edac3a472eac8",
+      "bytes": 892
+    },
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132/paper.pdf",
+      "embedded_path": "mathematical-supplement.zip",
+      "sha256": "cea194db0d3940f0075ef97cfaf33dedf1181b7bfe2f9d6b865eb1a319edea85",
+      "bytes": 1160
+    },
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132/paper.pdf",
+      "embedded_path": "mathematical-supplement.zip!checkers/verify_certificate.py",
+      "sha256": "61a62cea4e0ae61121046a0c5587b56b025ce176e61f7c290e6bef4a9765aa72",
+      "bytes": 2434
+    },
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/LICENSE",
+      "embedded_path": null,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    {
+      "url": "https://raw.githubusercontent.com/canghaimeng/openai-math-improvement/b3c7abea0d5e392777498816ca837eded8b85669/NOTICE",
+      "embedded_path": null,
+      "sha256": "4bae572349f9a7109c4c9ef7ad9ad1ca7efd64c1721cb705dc28097ace161bbc",
+      "bytes": 286
+    }
+  ],
+  "bundled_checker": "upstream/verify_certificate.py",
+  "extraction": "pdfdetach -save 1 -o mathematical-supplement.zip paper.pdf; unzip -p mathematical-supplement.zip checkers/verify_certificate.py"
+}

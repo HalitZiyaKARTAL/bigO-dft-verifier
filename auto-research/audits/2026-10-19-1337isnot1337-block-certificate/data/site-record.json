@@ -1,0 +1,36 @@
+{
+  "source": "https://bigospeedrun.com/chat-knowledge.json",
+  "snapshot_updated_at": "2026-10-19T15:17:24Z",
+  "full_snapshot_sha256": "2742b77e625924d6984968ebfbc6e125fc6ebedf12705f772d174175b2723a23",
+  "extraction": "otherBounds.rows entry with path /other/block-sensitivity",
+  "row": {
+    "path": "/other/block-sensitivity",
+    "title": "Block sensitivity separation",
+    "aliases": [
+      "block sensitivity"
+    ],
+    "openaiFamily": "132",
+    "rankedQuantity": "\\alpha\\text{ in }\\mathrm{bs}(f)\\ge s(f)^{\\alpha-o(1)}",
+    "better": "A higher value is better.",
+    "statement": "The quantity is the exponent \\(\\alpha\\) in \\(\\mathrm{bs}(f)\\ge s(f)^{\\alpha-o(1)}\\), for a family of total Boolean functions \\(f\\) with \\(s(f)\\to\\infty\\). A higher exponent is better. The sensitivity \\(s(f)\\) is the largest number of single bits that change the value of \\(f\\) when flipped at one input. The block sensitivity \\(\\mathrm{bs}(f)\\) is the largest number of disjoint sets of bits that each change the value of \\(f\\) when flipped at one input. Rubinstein’s 1995 construction gives \\(\\alpha=2\\). Huang’s 2019 theorem, with Tal’s refinement, gives \\(\\mathrm{bs}(f)\\le s(f)^4\\), so \\(\\alpha\\le4\\). The OpenAI baseline builds one seed function \\(f\\) with \\(s(f)\\le A\\) and block sensitivity \\(\\mathrm{bs}(f,0)\\ge B\\) at the all-zero input, and composes it with itself, which gives \\(\\alpha=\\log B/\\log A\\). OpenAI’s Lean proof uses the seed with recursion depth \\(d=9\\) and size parameter \\(M=9^{10}\\).",
+    "baseline": {
+      "bound": "\\mathrm{bs}(f)\\ge s(f)^{2.000252}",
+      "source": "https://github.com/openai/math/blob/adc7f1241b42e322a6451854ab7e4b4c146bf78a/preprints/A-superquadratic-separation-between-sensitivity-and-block-sensitivity-September-25-2026/paper.pdf",
+      "date": "2026-10-06"
+    },
+    "current": {
+      "bound": "\\mathrm{bs}(f)\\ge s(f)^{2.032083}",
+      "exactValue": "380/187",
+      "conditions": "The paper keeps the nested-predicate construction of OpenAI and the level-dependent schedule of the ProveIt Part I preprint (depth \\(d=20\\)), and takes 99 OR copies instead of 100. An integer certificate gives \\(\\alpha>380/187\\approx2.0320855\\). The paper is dated October 17, 2026.",
+      "evidence": "Claimed",
+      "authors": [
+        "Qiuyu Chen (Euler)"
+      ],
+      "date": "2026-10-19",
+      "source": "https://github.com/canghaimeng/openai-math-improvement/blob/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-132/README.md",
+      "proofScope": "No Lean proof is supplied for this result. The proof is the PDF paper in the repository; no independent check."
+    },
+    "claimCount": 2,
+    "relevantRepos": []
+  }
+}

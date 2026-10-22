@@ -1,0 +1,17 @@
+{
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "bound": "165971304277649481670619/324956758716416046811841770291200",
+  "evidence_before": "Claimed",
+  "models": [
+    "OpenAI Codex GPT-6"
+  ],
+  "predecessors": [
+    "https://github.com/canghaimeng/openai-math-improvement/blob/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-111/paper.pdf",
+    "https://github.com/shea256/matroid-prophet-inequality/blob/8cd1395994596d89ad20c2af8b69dab8e3402ee1/README.md"
+  ],
+  "problem": "/other/matroid-prophet",
+  "reproduce": "python3 -B auto-research/audits/2026-10-19-1337isnot1337-matroid-scalar-141/verify.py --fetch-source",
+  "scope": "Confirms the exact B > 141 scalar improvement and replays the embedded checker; the universal matroid theorem and full-seed transfer remain unaudited.",
+  "status": "audit",
+  "track": "audits"
+}

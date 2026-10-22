@@ -1,0 +1,29 @@
+{
+  "seed": 42,
+  "seed_source": "Python secrets.randbelow(100), 2026-10-18T19:15:14Z",
+  "track": "formalization",
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "candidates": [
+    {
+      "task": "Subset Sum 0.4877, Section 3: Lemmas 3.1-3.3 and Corollary D (averaged small-layer lemma)",
+      "decision": "chosen",
+      "reason": "Finite combinatorics introduced by the note, used by its coverage argument, written proof only; formalizable on the pinned Mathlib in one session."
+    },
+    {
+      "task": "Subset Sum 0.4877, Section 2.2: alias constraints (C1)-(C8) and sizes (S1)-(S5)",
+      "decision": "not chosen",
+      "reason": "(C1)-(C8) are already machine-checked in Arb ball arithmetic; Lean proofs need log2 and entropy bounds to about 1e-6, for less new evidence."
+    },
+    {
+      "task": "Subset Sum 0.4877, Section 4: Proposition P and the (LD) alternative",
+      "decision": "not chosen",
+      "reason": "Rests on the paper's Lemma 2.3 (exposure martingale, variance bound): probability theory not yet stated anywhere in Lean for this model."
+    }
+  ],
+  "checked": {
+    "verifier_prs_and_issues": "2026-10-18: open PRs #11 (matrix statement), #12 (Subset Sum statement), #15 (average-sensitivity statement); no formalization package or PR; no issue on Subset Sum steps.",
+    "source_repository": "a-kapila/maths-proofs at 44c3496 has no .lean file.",
+    "site_data": "chat-knowledge.json updatedAt 2026-10-18T18:17:23Z: Subset Sum current row O(2^{0.4877n}), exactScore 4877/10000, Claimed.",
+    "discord": "not accessed"
+  }
+}

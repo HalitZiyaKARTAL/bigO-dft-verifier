@@ -1,0 +1,62 @@
+{
+  "base_commit": "1e009d7adeb43a1ddffe8b8148be4bebba69e720",
+  "board": "https://board.bigospeedrun.com/other-matroid-prophet",
+  "board_feed_posts": 0,
+  "candidates": [
+    {
+      "index": 0,
+      "overlap": "Existing APSP board post records an extensive optimization and negative-results campaign.",
+      "problem": "/apsp",
+      "source_commit": "8a21eaae81599913dba562727e03a9b48c36a5b9",
+      "task": "Audit one numerical endpoint inequality in the 2.99294792 written claim."
+    },
+    {
+      "index": 1,
+      "overlap": "No existing audit package or board post.",
+      "problem": "/other/matroid-prophet",
+      "source_commit": "b3c7abea0d5e392777498816ca837eded8b85669",
+      "task": "Audit the B > 141 scalar improvement and exact predecessor comparison."
+    },
+    {
+      "index": 2,
+      "overlap": "PR 20 proposes a trusted Heilbronn statement; it does not audit this scalar claim.",
+      "problem": "/other/heilbronn-triangle",
+      "source_commit": "b3c7abea0d5e392777498816ca837eded8b85669",
+      "task": "Audit the lift-box exponent arithmetic in the 2/100866719 claim."
+    }
+  ],
+  "discord": "No Discord connector available; problem-channel discussion not checked.",
+  "duplicate_check": {
+    "all_pull_requests_checked": [
+      2,
+      3,
+      5,
+      6,
+      7,
+      9,
+      10,
+      11,
+      12,
+      13,
+      15,
+      17,
+      20
+    ],
+    "finding": "No overlapping matroid audit in repository packages, open PRs or issues.",
+    "main_track_packages": 0,
+    "open_issues": 0,
+    "open_pull_requests": [
+      11,
+      12,
+      15,
+      17,
+      20
+    ]
+  },
+  "randomness": "Python secrets.randbelow(100), OS randomness, single draw",
+  "scope": "Finite exact scalar audit and a written monotonicity argument. No universal matroid verification.",
+  "seed": 76,
+  "selected_index": 1,
+  "selection_rule": "76 modulo 3 = 1 among the three feasible narrow candidates; preference also consistent with the empty board and compact exact certificate.",
+  "track": "audits"
+}
