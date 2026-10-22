@@ -1,0 +1,38 @@
+name: Assemble tensor PR branch (small)
+on:
+  push:
+    paths: ['tensor-delta.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          set -euo pipefail
+          Z=tensor-delta.zip
+          if [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          DEST=submissions/dft/halitziyakartal-halitziyav3-tensor
+          SRC=submissions/dft/jacobalansussman-lever-2979-full-cut
+          BRANCH=pr-halitziyav3-tensor
+          BASE=bf0ea2aa30311d3679caf40fa759a0548b2c8e25
+          D="$RUNNER_TEMP/delta"
+          mkdir -p "$D"
+          unzip -q "$Z" -d "$D"
+          git fetch -q https://github.com/bigospeedrun/verifier "$BASE"
+          git checkout -q -B "$BRANCH" FETCH_HEAD
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          while IFS= read -r f; do mkdir -p "$DEST/$(dirname "$f")"; cp "$SRC/$f" "$DEST/$f"; done < "$D/keep.txt"
+          cp -r "$D/files/." "$DEST/"
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "folder checksum: $SUM"
+          if [ "$SUM" != "eae52dc3b671a4b14ff6e283e4b31f5fef1e0a9bdc98392b4829fda24ba4040a" ]; then echo "checksum mismatch, nothing pushed"; exit 1; fi
+          git add "$DEST"
+          git -c user.name="${{ github.actor }}" -c user.email="${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com" commit -q -m "DFT submission: saving 26159999/10000000000"
+          git push -q -f origin "$BRANCH"
+          echo "pushed branch $BRANCH: open the pull request from it"
