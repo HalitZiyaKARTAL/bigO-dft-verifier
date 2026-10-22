@@ -1,0 +1,34 @@
+name: Assemble head-cut PR branch
+on:
+  push:
+    paths: ['headcut-submission.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          set -euo pipefail
+          Z=headcut-submission.zip
+          if [ ! -f "$Z" ]; then echo "zip not found"; exit 0; fi
+          DEST=submissions/dft/halitziyakartal-halitziyav2-headcut
+          BRANCH=pr-halitziyav2-headcut
+          BASE=bf0ea2aa30311d3679caf40fa759a0548b2c8e25
+          cp "$Z" "$RUNNER_TEMP/sub.zip"
+          git fetch -q https://github.com/bigospeedrun/verifier "$BASE"
+          git checkout -q -B "$BRANCH" FETCH_HEAD
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+          unzip -q "$RUNNER_TEMP/sub.zip" -d "$DEST"
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "folder checksum: $SUM"
+          if [ "$SUM" != "9364e766aa6350aacb9a1692bce53fabfd6c7c99df6a51439dd0e0fef5d15e0b" ]; then echo "checksum mismatch, nothing pushed"; exit 1; fi
+          git add "$DEST"
+          git -c user.name="${{ github.actor }}" -c user.email="${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com" commit -q -m "DFT submission: saving 1959540039/1000000000000"
+          git push -q -f origin "$BRANCH"
+          echo "pushed branch $BRANCH: open the pull request from it"
