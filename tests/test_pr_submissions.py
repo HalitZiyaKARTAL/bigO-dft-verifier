@@ -271,6 +271,9 @@ class PRTests(unittest.TestCase):
         comments=[c[1]['body'] for c in calls if c[0]=='issues/7/comments']
         self.assertEqual(len(comments),1);self.assertIn('**claimed_only**',comments[0])
         self.assertFalse([c for c in calls if 'labels' in c[0] or c[0].endswith('/merge')])
+        # Lead, 2026-10-23: the PR then closes; the site keeps it Claimed by this report for its head.
+        self.assertIn('stays listed as Claimed',comments[0])
+        self.assertEqual([c for c in calls if c[0]=='pulls/7'],[('pulls/7',{'state':'closed'},'PATCH')])
         # The Lean checkpoint of a skipped run publishes nothing; the final publication reports the gate.
         result,calls=self.publish_fixture(gate='claimed_only',stage='lean')
         self.assertEqual((result,calls),(None,[]))

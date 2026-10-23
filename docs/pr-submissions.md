@@ -17,7 +17,7 @@ Users need no separate public proof project. A GitHub fork/PR may still be used.
 
 The same record gate applies (the best Lean Verified row), including a tie unless a tied leader
 already has receipt-backed Lean Verified evidence. The check repeats before
-compilation. A below-record PR receives a comment, remains open, and stays Claimed.
+compilation. A below-record PR receives a claimed_only comment and closes; the site keeps it listed as Claimed by that comment.
 
 A Comparator Lean pass plus the permitted-axiom audit qualifies. Nanoda resource
 limits do not prevent this result; real rejection does. The bot comments a receipt
@@ -171,7 +171,7 @@ The importer must independently bind both workflow identities/revisions, run
 attempts, artifact IDs/digests, source head, folder/manifest/file hashes, exact
 problem/target, Lean/axiom policy, and the PR's GitHub merge evidence. It must accept
 an API-merged PR for this route (issues still require their issue-state policy).
-Open below-record/unverified PRs are Claimed. Closed-unmerged failures stay off
+Open below-record/unverified PRs are Claimed, and so is a PR closed after its claimed_only report. Other closed-unmerged PRs stay off
 the board. Equal-bound passes create a separate row with their own proof credit.
 Never enable a fixture or an unreviewed verifier/publisher revision.
 `tests/fixtures/direct/pr-envelope.json` is a synthetic, explicitly non-importable

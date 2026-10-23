@@ -410,6 +410,19 @@ def qualifies_for_run(submission, record):
     return candidate > current if submission['problem'] == 'dft' else candidate < current
 
 
+CLAIMED_TEXT = ('This submission is listed as Claimed; the bound does not qualify for a proof run. A run starts only for a '
+                'bound that matches or beats the best Lean Verified result on its board, and that bar only gets higher, so '
+                'this {item} now closes. It stays listed as Claimed. To submit a better bound, open a new {item}.')
+
+
+def close_claimed(number, digest, item):
+    """One claimed-only report for this submission version, then close it as not planned: it would never run
+    later, and the site keeps it listed as Claimed by this report's marker (Lead, 2026-10-23, after PR #52)."""
+    marker = f'<!-- bos-claimed-v1 {number} {digest} -->'
+    comment_once(number, marker + '\n' + CLAIMED_TEXT.format(item=item), key=marker)
+    api(f'issues/{number}', {'state': 'closed', 'state_reason': 'not_planned'}, method='PATCH')
+
+
 def selection_outputs(selected):
     with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
         out.write('selected=' + str(bool(selected)).lower() + '\n')
@@ -658,7 +671,7 @@ def select_bounded():
                     if not qualifies:
                         marker = f"<!-- bos-claimed-v1 {issue['number']} {digest} -->"
                         if not any(is_bot(c) and c.get('body', '').startswith(marker) for c in comments):
-                            api(f"issues/{issue['number']}/comments", {'body': marker + '\nThis submission is listed as Claimed; the bound does not qualify for a proof run.'})
+                            close_claimed(issue['number'], digest, 'issue')
                         continue
                     request['record_gate'] = record
                     route = 'issue'
@@ -850,6 +863,9 @@ def report():
     payload = {'issue_number': selected['issue_number'], 'body': body}
     if close:
         payload['close'] = close
+    if gate_path.exists() and json.loads(gate_path.read_text())['status'] == 'claimed_only' and not stale and not result['test_only']:
+        # The record improved between selection and compilation: the same claimed-only end as at selection.
+        payload['claimed'] = selected['submission_sha256']
     if result['status'] == 'passed' and derivation_hold(selected) and not stale and not result['test_only']:
         payload['hold'] = {'submission_sha256': selected['submission_sha256'], 'version': selected['issue_body_sha256'],
                            'derivation': selected['derivation']}
@@ -864,6 +880,8 @@ def publish():
     # Only the report comment carries a close decision; earlier comments never close.
     if comment.get('close'):
         api(f"issues/{comment['issue_number']}", {'state': 'closed', 'state_reason': comment['close']}, method='PATCH')
+    if comment.get('claimed'):
+        close_claimed(comment['issue_number'], comment['claimed'], 'issue')
     if comment.get('hold'):
         # A derivation hold: the review label and one maintainer ping that names the release entry.
         import pr_submissions

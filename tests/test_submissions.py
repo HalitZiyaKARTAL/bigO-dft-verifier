@@ -236,6 +236,24 @@ class SubmissionTests(unittest.TestCase):
                 self.assertEqual(sorted(json.loads(Path(f'requests/{n}.json').read_text())['derivation']['status'] for n in [13]),['not_computed'])
             finally:os.chdir(old)
 
+    def test_a_claimed_only_issue_gets_one_report_and_closes(self):
+        item=issue(14,'other',bound='1/10000');calls=[]
+        digest=s.issue_request(item,s.issue_input(item))['submission_sha256']
+        def api(p,data=None,method=None):
+            if data is not None:calls.append((method,p,data));return {}
+            return [item] if p.startswith('issues?') else []
+        with tempfile.TemporaryDirectory() as tmp:
+            old=Path.cwd();os.chdir(tmp)
+            try:
+                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(queue_lease,'acquire',return_value=Mock(state={'page':1,'offset':0},admitted=Mock(return_value=False))),\
+                     patch.object(s,'current_record',return_value={'score':'1/2000','score_relation':'attained'}),patch.object(s,'api',side_effect=api),patch.object(s,'acknowledge'):
+                    s.select()
+            finally:os.chdir(old)
+        self.assertEqual([c[:2] for c in calls if not c[2].get('body','').startswith(derivation.MARKER)],[(None,'issues/14/comments'),('PATCH','issues/14')])
+        report=[c for c in calls if c[1]=='issues/14/comments' and c[2]['body'].startswith('<!-- bos-claimed-v1')][0]
+        self.assertTrue(report[2]['body'].startswith(f'<!-- bos-claimed-v1 14 {digest} -->'))
+        self.assertEqual(calls[-1][2],{'state':'closed','state_reason':'not_planned'})
+
     def test_comment_markers_are_not_admission_state(self):
         item=issue();request=s.issue_request(item,s.issue_input(item))
         marker=s.marker_for(42,request['submission_sha256'],request['issue_body_sha256'])
@@ -343,11 +361,17 @@ class SubmissionTests(unittest.TestCase):
             self.assertNotIn('close',comment)
             self.assertEqual(len(calls),1)
 
-    def test_claimed_only_result_stays_open(self):
+    def test_claimed_only_result_closes_with_its_claimed_report(self):
+        # Lead, 2026-10-23 (PR #52): a claimed-only submission closes; the site keeps it Claimed by the marker.
         comment,calls=self.status_report(self.receipt(),gate={'status':'claimed_only','reason':'record_or_issue_changed','record_gate':{'score':'1/2000','score_relation':'attained'}})
         self.assertNotIn('close',comment)
         self.assertIn('no proof run started',comment['body'])
-        self.assertEqual(len(calls),1)
+        live=self.live()
+        self.assertEqual(comment['claimed'],live['submission_sha256'])
+        self.assertEqual(len(calls),3)
+        self.assertTrue(calls[1][2]['body'].startswith(f"<!-- bos-claimed-v1 42 {live['submission_sha256']} -->"))
+        self.assertIn('stays listed as Claimed',calls[1][2]['body'])
+        self.assertEqual(calls[2],('PATCH','issues/42',{'state':'closed','state_reason':'not_planned'}))
 
     def test_module_headers_and_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:

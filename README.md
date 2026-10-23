@@ -33,12 +33,13 @@ APSP, and 0 ≤ C ≤ 8 for average sensitivity.
 
 The verifier runs up to nine public submissions and one maintainer test in parallel,
 with one queued public run per GitHub account. A run starts only if the bound matches or beats the best Lean Verified result on that board (a Claimed result does not block it);
-otherwise, the bot replies that the submission is listed as Claimed.
+otherwise, the bot replies that the submission is listed as Claimed and closes it
+(it stays listed as Claimed; a better bound is a new submission).
 The bot posts a receipt on the issue or PR. For PRs, a Lean pass causes an
 automatic merge. A real Lean or axiom failure, or a real nanoda rejection,
 causes an automatic close. A timeout, resource limit, or infrastructure failure
 leaves the PR open with a review label and a maintainer mention. A below-record
-PR stays open as Claimed. Scheduled checks pick up new PR commits.
+PR is closed and stays listed as Claimed. Scheduled checks pick up new PR commits.
 
 Before merging, the bot checks that the PR adds only its own new submission
 folder and that its head is the verified commit. An unsafe diff is closed with a reason.

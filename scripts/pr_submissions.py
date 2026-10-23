@@ -593,6 +593,8 @@ def publish_pr(artifact_override=None, stage="final"):
         'disposition': disposition, 'reason': reason, 'merge_commit': None}
     comment = f"<!-- bos-pr-v2 {number} {request['head_sha']} -->\n" + f'PR proof result: **{disposition}**. {reason}.\n\n[Receipt and logs]({url})'
     comment += compile_error_comment(receipt or {})
+    if disposition == 'claimed_only' and not recovering_merge:
+        comment += '\n\n' + s.CLAIMED_TEXT.format(item='PR')
     if request.get('test_only'):
         comment += '\n\nTEST ONLY: this smoke result must never be imported.'
     if disposition == 'close' and receipt and receipt.get('kernels', {}).get('nanoda', {}).get('status') == 'rejected':
@@ -645,6 +647,12 @@ def publish_pr(artifact_override=None, stage="final"):
         if current['head']['sha'] != request['head_sha']:
             envelope.update(disposition='keep_open', reason='A newer commit has its own check; close skipped', importable=False)
         elif current['state'] == 'open':
+            api(f'pulls/{number}', {'state': 'closed'}, method='PATCH')
+    elif disposition == 'claimed_only' and not recovering_merge and not request.get('test_only'):
+        # Lead, 2026-10-23 (PR #52): a claimed-only PR closes after this report; the site keeps it listed as Claimed
+        # by the report for its head.
+        current = api(f'pulls/{number}')
+        if current['head']['sha'] == request['head_sha'] and current['state'] == 'open':
             api(f'pulls/{number}', {'state': 'closed'}, method='PATCH')
     elif held:
         hold_ping(number, 'pull_request', request['submission_sha256'], request['head_sha'], request['derivation'])
