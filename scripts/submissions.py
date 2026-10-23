@@ -215,7 +215,7 @@ RECEIPT_LINK = re.compile(r'\]\((https://github\.com/[^)\s]+/actions/runs/[0-9]+
 
 def comment_once(number, body, call=None, key=None):
     """Post a result comment unless a bot comment already links the same receipt artifact
-    (or, with a key, already contains that key).
+    (or, with a key, already contains that key), and keep only the oldest copy after a race.
     GitHub can start two publisher watchers for one verify run (a run that goes queued and
     back to in_progress sends a second event); both see the same checkpoint (2026-10-20)."""
     call = call or api
@@ -231,8 +231,31 @@ def comment_once(number, body, call=None, key=None):
                 break
         else:
             raise ValueError('Comment lookup exceeds bounded scan; review required')
-    call(f'issues/{number}/comments', {'body': body})
+    posted = call(f'issues/{number}/comments', {'body': body})
+    if links and isinstance(posted, dict) and posted.get('id'):
+        try:
+            drop_newer_copy(number, links[0], posted['id'], call)
+        except Exception as error:  # Best effort: the comment is posted; a failed cleanup leaves two copies.
+            print('Duplicate comment cleanup failed: ' + type(error).__name__, flush=True)
     return True
+
+
+def drop_newer_copy(number, key, posted_id, call):
+    """Two publisher watchers can both pass the check above before either posts (test issue #48,
+    2026-10-23: the Lean checkpoint comment twice, one second apart). The oldest bot comment with
+    the key stays; a watcher whose own copy is newer deletes it."""
+    same = []
+    for page in range(1, 11):
+        comments = call(f'issues/{number}/comments?per_page=100&page={page}')
+        same += [c for c in comments if isinstance(c, dict) and is_bot(c) and key in (c.get('body') or '')]
+        if len(comments) < 100:
+            break
+    ids = sorted(c['id'] for c in same if isinstance(c.get('id'), int))
+    if len(ids) > 1 and posted_id in ids and posted_id != ids[0]:
+        try:
+            call(f'issues/comments/{int(posted_id)}', method='DELETE')
+        except ValueError:
+            pass  # 204 No Content: the delete succeeded; there is no JSON body to read.
 
 
 def issue_input(issue):

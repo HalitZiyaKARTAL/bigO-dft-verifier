@@ -380,6 +380,45 @@ class BoundDigitsTests(unittest.TestCase):
         self.assertFalse(s.qualifies_for_run(self.sub('3sum', '4800698642525000001/2500000000000000000'), record))
 
 
+class CommentOnceTests(unittest.TestCase):
+    """Two publisher watchers raced on test issue #48 (2026-10-23): the oldest copy stays."""
+    LINK = 'https://github.com/bigospeedrun/verifier/actions/runs/1/artifacts/2'
+
+    def race(self, own_id, other_id):
+        bot = lambda i: {'id': i, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'}, 'body': f'[Receipt]({self.LINK})'}
+        reads, deleted = [0], []
+        def call(path, data=None, method=None):
+            if method == 'DELETE':
+                deleted.append(path); raise ValueError('no JSON body')
+            if data is not None:
+                return {'id': own_id}
+            reads[0] += 1
+            # First read: nothing yet (both watchers pass the check); later reads: both copies.
+            return [] if reads[0] == 1 else [bot(other_id), bot(own_id)]
+        self.assertTrue(s.comment_once(48, f'Checkpoint\n\n[Receipt]({self.LINK})', call))
+        return deleted
+
+    def test_the_newer_copy_deletes_itself_and_the_older_stays(self):
+        self.assertEqual(self.race(own_id=11, other_id=10), ['issues/comments/11'])
+        self.assertEqual(self.race(own_id=10, other_id=11), [])
+
+    def test_a_failed_cleanup_does_not_fail_the_post(self):
+        calls = []
+        def call(path, data=None, method=None):
+            if data is not None:
+                calls.append(path); return {'id': 3}
+            if calls:
+                raise OSError('read failed after the post')
+            return []
+        self.assertTrue(s.comment_once(48, f'[Receipt]({self.LINK})', call))
+        self.assertEqual(calls, ['issues/48/comments'])
+
+    def test_a_comment_without_a_key_is_posted_once_without_a_rescan(self):
+        calls = []
+        s.comment_once(5, 'plain text', lambda path, data=None, method=None: calls.append((path, data)) or {'id': 1})
+        self.assertEqual(calls, [('issues/5/comments', {'body': 'plain text'})])
+
+
 class ReleaseTests(unittest.TestCase):
     """The lead's derivations entry in the site's review-decisions.json releases a held result (2026-10-23)."""
     DIGEST = 'd' * 64
