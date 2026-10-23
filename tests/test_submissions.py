@@ -253,6 +253,21 @@ class SubmissionTests(unittest.TestCase):
         report=[c for c in calls if c[1]=='issues/14/comments' and c[2]['body'].startswith('<!-- bos-claimed-v1')][0]
         self.assertTrue(report[2]['body'].startswith(f'<!-- bos-claimed-v1 14 {digest} -->'))
         self.assertEqual(calls[-1][2],{'state':'closed','state_reason':'not_planned'})
+        # The report is already there (an earlier close failed): only the close is sent again.
+        reported={'user':{'login':'github-actions[bot]','type':'Bot'},'body':report[2]['body']}
+        calls.clear()
+        def api2(p,data=None,method=None):
+            if data is not None:calls.append((method,p,data));return {}
+            return [item] if p.startswith('issues?') else [reported]
+        with tempfile.TemporaryDirectory() as tmp:
+            old=Path.cwd();os.chdir(tmp)
+            try:
+                with patch.dict(os.environ,GITHUB_OUTPUT=str(Path(tmp)/'output')),patch.object(queue_lease,'acquire',return_value=Mock(state={'page':1,'offset':0},admitted=Mock(return_value=False))),\
+                     patch.object(s,'current_record',return_value={'score':'1/2000','score_relation':'attained'}),patch.object(s,'api',side_effect=api2),patch.object(s,'acknowledge'):
+                    s.select()
+            finally:os.chdir(old)
+        self.assertEqual([c for c in calls if c[1]=='issues/14'],[('PATCH','issues/14',{'state':'closed','state_reason':'not_planned'})])
+        self.assertFalse([c for c in calls if c[1]=='issues/14/comments' and c[2]['body'].startswith('<!-- bos-claimed-v1')])
 
     def test_comment_markers_are_not_admission_state(self):
         item=issue();request=s.issue_request(item,s.issue_input(item))

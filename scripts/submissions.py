@@ -670,8 +670,12 @@ def select_bounded():
                         request['derivation'] = report
                     if not qualifies:
                         marker = f"<!-- bos-claimed-v1 {issue['number']} {digest} -->"
+                        # The report and the close; also the close alone when an earlier close failed after
+                        # its report (the issue is open here, so it is still not closed).
                         if not any(is_bot(c) and c.get('body', '').startswith(marker) for c in comments):
                             close_claimed(issue['number'], digest, 'issue')
+                        else:
+                            api(f"issues/{issue['number']}", {'state': 'closed', 'state_reason': 'not_planned'}, method='PATCH')
                         continue
                     request['record_gate'] = record
                     route = 'issue'
