@@ -168,8 +168,8 @@ class PRTests(unittest.TestCase):
                 with self.assertRaises(ValueError):p.validate_run(dict(run,**{key:value}),self.request(),self.pr)
             with self.assertRaises(ValueError):p.validate_run(run,dict(self.request(),test_only=True),self.pr)
 
-    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False, hold=False):
-        request=self.request()
+    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False, hold=False, gate='ready'):
+        request=dict(self.request(),gate=gate)
         if hold:request['derivation']={'status':'computed','hold':True,'closest':{'key':'direct-pr-41','url':'https://github.com/bigospeedrun/verifier/pull/41'}}
         receipt=self.receipt();buf=io.BytesIO()
         suffix='-lean' if stage=='lean' else ''
@@ -180,6 +180,10 @@ class PRTests(unittest.TestCase):
         if rejection:
             receipt['kernels']['nanoda']={'status':'rejected','reason':'nanoda_type_equality_rejection'}
             receipt['theorems']['Race.bound']['nanoda_kernel']='rejected'
+        if gate!='ready':
+            # A skipped proof leaves verifier.py finalize's placeholder: no provenance, no steps.
+            receipt={'schema_version':1,'status':'setup_failed','steps':[],'kernels':{},'run_url':None,'verifier_commit':None,
+                     'verification_stage':stage,'total_wall_seconds':0.0,'theorems':{},'artifact_sha256':{}}
         with zipfile.ZipFile(buf,'w') as z:
             z.writestr('pr-request.json',json.dumps(request))
             if not omit_receipt:z.writestr('receipt.json',json.dumps(receipt))
@@ -222,8 +226,8 @@ class PRTests(unittest.TestCase):
                 with patch.dict(os.environ,GITHUB_EVENT_PATH=str(event),GITHUB_SHA='b'*40,GITHUB_RUN_ID='456',GITHUB_RUN_ATTEMPT=publisher_attempt),patch.object(p,'api',side_effect=api),patch.object(p,'inspect_pr',return_value=dict(request,head_sha=pr['head']['sha'])),patch.object(p,'validate_controller',side_effect=(unsafe if isinstance(unsafe,Exception) else p.LayoutError('protected workflow changed')) if unsafe else None):
                     artifact=api('actions/runs/123/artifacts?per_page=100')['artifacts'][0]
                     p.publish_pr(artifact,stage=stage)
-                result=json.loads(Path('published/pr-submission-7'+suffix+'.json').read_text())
-                return result,calls
+                published=Path('published/pr-submission-7'+suffix+'.json')
+                return (json.loads(published.read_text()) if published.exists() else None),calls
             finally:os.chdir(old)
 
     def test_publisher_merge_uses_atomic_sha(self):
@@ -259,6 +263,17 @@ class PRTests(unittest.TestCase):
         body=[d['body'] for path,d in calls if path=='issues/9/comments' and d][0]
         self.assertNotIn('evil',body);self.assertIn('an earlier submission',body);self.assertIn('closes this issue',body)
         with self.assertRaises(ValueError):p.hold_ping(9,'issue','bad','e'*64,{})
+
+    def test_a_claimed_only_pr_is_reported_once_as_claimed_only(self):
+        # PR #52 (2026-10-23): the placeholder receipt of a skipped run was reported as "Receipt run mismatch".
+        result,calls=self.publish_fixture(gate='claimed_only')
+        self.assertEqual((result['disposition'],result['importable']),('claimed_only',False))
+        comments=[c[1]['body'] for c in calls if c[0]=='issues/7/comments']
+        self.assertEqual(len(comments),1);self.assertIn('**claimed_only**',comments[0])
+        self.assertFalse([c for c in calls if 'labels' in c[0] or c[0].endswith('/merge')])
+        # The Lean checkpoint of a skipped run publishes nothing; the final publication reports the gate.
+        result,calls=self.publish_fixture(gate='claimed_only',stage='lean')
+        self.assertEqual((result,calls),(None,[]))
 
     def test_publisher_attempt_and_raw_receipt_hash(self):
         for attempt in ['1','2']:

@@ -531,6 +531,8 @@ def publish_pr(artifact_override=None, stage="final"):
     suffix = '-lean' if stage == 'lean' else ''
     if artifact['name'] != f'pr-verification-{run_id}-{attempt}-{number}{suffix}':
         raise ValueError('Artifact PR identity mismatch')
+    if stage == 'lean' and request.get('gate') != 'ready':
+        return  # No proof ran: the final publication reports the gate once.
     recovering_merge = pr['state'] == 'closed' and pr.get('merged') is True
     if pr['state'] != 'open' and not recovering_merge:
         return
@@ -555,9 +557,13 @@ def publish_pr(artifact_override=None, stage="final"):
         for field in ['submission', 'submission_sha256', 'source_subdir', 'manifest_sha256', 'changed_files_sha256']:
             if checked[field] != request.get(field):
                 raise LayoutError('PR source/manifest changed since verification')
-        if receipt and receipt.get('run_url') != f'https://github.com/{s.REPOSITORY}/actions/runs/{run_id}':
+        # Only a run that passed the gate has a real receipt; a skipped run leaves a placeholder without
+        # provenance, and outcome() reports its gate (PR #52, 2026-10-23: a Claimed-only bound was reported
+        # as "Receipt run mismatch" with a review ping).
+        proof_ran = request.get('gate') == 'ready'
+        if proof_ran and receipt and receipt.get('run_url') != f'https://github.com/{s.REPOSITORY}/actions/runs/{run_id}':
             raise ValueError('Receipt run mismatch')
-        if receipt:
+        if proof_ran and receipt:
             for path, expected in receipt.get('artifact_sha256', {}).items():
                 if path not in files or digest(files[path]) != expected:
                     raise ValueError('Receipt log hash mismatch')
