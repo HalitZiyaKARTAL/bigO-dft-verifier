@@ -35,7 +35,7 @@ def validate_submission(value):
         raise ValueError('Expected schema_version, problem, bound, repo_url, commit, authors only')
     profiles = json.loads((ROOT / 'profiles/direct.json').read_text())
     if not isinstance(value['problem'], str) or value['problem'] not in profiles:
-        raise ValueError('Supported problems: dft, 3sum, apsp')
+        raise ValueError('Supported problems: ' + ', '.join(p for p in profiles if p not in CLOSED))
     # At most 40 digits per integer (Nil, 2026-10-21: a reduced 3SUM bound needed 19, issue #35).
     if not isinstance(value['bound'], str) or not re.fullmatch(r'(?:0|[1-9][0-9]{0,39})(?:/[1-9][0-9]{0,39})?', value['bound']):
         raise ValueError('bound must be an integer or a fraction p/q (no decimals), with at most 40 digits in each')
@@ -65,7 +65,13 @@ def validate_submission(value):
 
 
 FORM_FIELDS = ['Problem', 'Repository URL', 'Commit SHA', 'Bound']
-MODEL_IDS = {'dft': 'exact-dft/uniform-exact-arithmetic', '3sum': '3sum/word-ram', 'apsp': 'apsp/word-ram'}
+MODEL_IDS = {'dft': 'exact-dft/uniform-exact-arithmetic', '3sum': '3sum/word-ram', 'apsp': 'apsp/word-ram',
+             'average-sensitivity': 'other/average-sensitivity'}
+# Other bounds rows with a trusted statement: the record gate reads the row, not a board file.
+OTHER = {'average-sensitivity'}
+# A profile whose proof route is not open yet: selection skips it, and only the maintainer smoke runs
+# it (smoke.py). Opening is a reviewed change that removes the problem from this set.
+CLOSED = {'average-sensitivity'}
 
 
 def parse_body(body):
@@ -131,6 +137,8 @@ theorem Race.bound : ∃ order solve W, DFTProgram order solve W ∧
       (fun n : ℕ => (n : ℝ) * (Real.log (n : ℝ)) ^ (1 - ({n} : ℝ) / {d})) := by
   sorry
 '''
+    elif submission['problem'] == 'average-sensitivity':
+        target = f'theorem Race.bound : BigOSpeedrun.AverageSensitivity.Bound (({n} : ℚ) / {d}) := by\n  sorry\n'
     else:
         problem = 'ThreeSum' if submission['problem'] == '3sum' else 'APSP'
         target = f'theorem Race.bound : EndStatement.{problem}.SolvedInTime (({n} : Rat) / {d}) := by\n  sorry\n'
@@ -267,12 +275,76 @@ def open_rank(problem):
     return -1 if problem == 'dft' else 1
 
 
+def site_files(paths):
+    """(site main commit, {path: bytes or None}) read at one resolved commit; None for a missing file."""
+    import base64
+    def read(path):
+        req = urllib.request.Request('https://api.github.com/repos/bigospeedrun/site/' + path,
+                                     headers={'Accept': 'application/vnd.github+json',
+                                              'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
+        return github_read_retry(req, urllib.request.urlopen, json.load, path)
+    sha = read('commits/main')['sha']
+    if not re.fullmatch('[0-9a-f]{40}', sha):
+        raise ValueError('Invalid site commit')
+    found = {}
+    for path in paths:
+        try:
+            obj = read(f'contents/{path}?ref={sha}')
+            if not obj.get('content'):
+                # The contents API leaves out the content of a file over 1 MB; its Git blob has it.
+                obj = read(f"git/blobs/{obj['sha']}")
+            found[path] = base64.b64decode(obj['content'], validate=False)
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            found[path] = None
+    return sha, found
+
+
+def exact_value(text):
+    if not isinstance(text, str) or not re.fullmatch(r'(?:0|[1-9][0-9]{0,39})(?:/[1-9][0-9]{0,39}|\.[0-9]{1,40})?', text):
+        return None
+    return Fraction(text)
+
+
+def other_record(problem, issue_url):
+    """The gate of an Other bounds row: its best Lean Verified claim (hand-listed, prove2.me or a direct
+    submission), else the row's exact baseline. A lower coefficient is better on these rows."""
+    rows, direct, prove2me = 'src/lib/other-bounds.json', 'data/direct-other.json', 'data/prove2me.json'
+    sha, files = site_files([rows, direct, prove2me])
+    family = next(f for f in json.loads(files[rows])['families'] if f['slug'] == problem)
+    if family['direction'] != 'lower':
+        raise ValueError('Other bounds direction mismatch')
+    claims = list(family['claims'])
+    for extra in [direct, prove2me]:
+        if files[extra] is not None:
+            claims += json.loads(files[extra]).get('boards', {}).get('other-' + problem, {}).get('claims', [])
+    verified = [(exact_value(c.get('value')), c.get('handle')) for c in claims
+                if c.get('evidence') == 'lean-verified' and c.get('url') != issue_url]
+    verified = [(v, h) for v, h in verified if v is not None]
+    if verified:
+        best = min(v for v, _ in verified)
+        leaders, any_lean = sorted(str(h) for v, h in verified if v == best), True
+    else:
+        best = exact_value(family['baseline'].get('exactValue'))
+        if best is None:
+            raise ValueError('No Lean Verified claim or exact baseline; refuse to guess')
+        leaders, any_lean = ['baseline'], False
+    raw = b''.join(files[p] or b'' for p in [rows, direct, prove2me])
+    return {'schema_version': 1, 'score': str(best), 'score_relation': 'attained', 'leader_ids': leaders,
+            'any_lean_verified_at_bound': any_lean, 'problem_id': MODEL_IDS[problem], 'site_commit': sha,
+            'data_sha256': hashlib.sha256(raw).hexdigest(),
+            'checked_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}
+
+
 def current_record(problem, issue_url):
     """Read the board from a resolved immutable site commit, never the issue repo.
 
     The gate is the best Lean Verified row of the board (Nil ruling 2026-10-20): a Claimed
     or Human Verified row never blocks a proof run. With no Lean Verified row, the classical
     baseline is the gate, so a bound must at least match it."""
+    if problem in OTHER:
+        return other_record(problem, issue_url)
     sha, raw = site_snapshot(problem)
     data = json.loads(raw)
     if data['problem_id'] != MODEL_IDS[problem]:
@@ -395,6 +467,9 @@ def acknowledge():
                     'queue is checked every 30 minutes. The result is posted here.' if pr.proof_candidate(pull) else
                     'Received. This PR changes no submissions/ folder, so it starts no proof run. A maintainer '
                     'reviews it and answers here.')
+        elif isinstance(submission, dict) and submission['problem'] in CLOSED:
+            text = ('Received, but proof submissions for this problem are not open yet. The maintainers will '
+                    'announce when they are; this issue is checked again then.')
         elif isinstance(submission, ValueError):
             text = ('Received, but this submission cannot start a proof run: ' + str(submission) + '. Edit this '
                     'issue to fix the form; the edit starts a new check.')
@@ -541,7 +616,7 @@ def select_bounded():
                         submission = issue_input(issue)
                     except ValueError:
                         continue
-                    if submission is None:
+                    if submission is None or submission['problem'] in CLOSED:
                         continue
                     request = issue_request(issue, submission)
                     digest = request['submission_sha256']

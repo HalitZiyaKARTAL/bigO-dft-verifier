@@ -1,4 +1,5 @@
-"""Maintainer-dispatched, non-importable smoke for the fixed historical DFT proof."""
+"""Maintainer-dispatched, non-importable smokes: the fixed historical DFT proof, and the pinned average-sensitivity
+proof that must pass before that problem opens (submissions.CLOSED)."""
 import json
 import os
 from pathlib import Path
@@ -9,10 +10,21 @@ PIN = '837dc3130adc79f7b7ab4ddd56c15576bbd766b0'
 REPO = 'https://github.com/chafreaky/wht-power-saving-lean'
 BOUND = '47171/62500000'
 TAG = 'dft-837dc31-v1'
+# Anchen0823's public proof of BigOSpeedrun.AverageSensitivity.Bound (1881/500) (verifier PR #15), issue route only.
+AS_FIXTURE = ('average-sensitivity', '1881/500', 'https://github.com/Anchen-AI4Math/average-sensitivity-lean',
+              'cb8c10538e613329be16f9a949d0d75a4c7c67f0')
+AS_TAG = 'avgsens-cb8c105-v1'
+
+
+def fixture(sub):
+    return (sub.get('problem'), sub.get('bound'), sub.get('repo_url'), sub.get('commit'))
 
 
 def active(selected):
     sub = selected.get('submission', {})
+    if selected.get('test_only') is True and selected.get('live_smoke') == AS_TAG:
+        return (selected.get('route') != 'pull_request' and fixture(sub) == AS_FIXTURE
+                and 'entrypoint' not in sub and 'source_subdir' not in sub)
     if selected.get('test_only') is not True or selected.get('live_smoke') != TAG:
         return False
     if sub.get('problem') != 'dft' or sub.get('bound') != BOUND:
@@ -23,6 +35,8 @@ def active(selected):
 
 
 def issue_submission(sub):
+    if fixture(sub) == AS_FIXTURE:
+        return s.validate_submission(sub)
     if (sub['problem'], sub['bound'], sub['repo_url'], sub['commit']) != ('dft', BOUND, REPO, PIN):
         raise ValueError('Smoke issue must pin the fixed historical DFT fixture')
     return s.validate_submission(dict(sub, entrypoint='dft233'))
@@ -55,7 +69,8 @@ def dispatch(lease):
         selected = p.inspect_pr(pr)
         selected.update(verifier_commit=os.environ['GITHUB_SHA'], gate='ready')
         login = selected['pr_submitter_login']
-    selected.update(test_only=True, live_smoke=TAG, lease_kind="smoke",
+    tag = AS_TAG if route == 'issue' and fixture(selected['submission']) == AS_FIXTURE else TAG
+    selected.update(test_only=True, live_smoke=tag, lease_kind="smoke",
                     record_gate={'test_only': True, 'reason': 'authorized fixed-pin smoke; record gate bypassed'})
     if not active(selected):
         raise ValueError('Smoke request is outside the fixed test scope')

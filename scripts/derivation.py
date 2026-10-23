@@ -165,7 +165,8 @@ def corpus(reader, problem):
         raise NotComputed('invalid site commit')
     meta = reader.get(SITE, f'contents/data/direct-submissions.json?ref={site}')
     states = json.loads(reader.blob(SITE, meta['sha']))['final_states']
-    board = json.loads(s.site_snapshot(problem)[1])
+    # An Other bounds row has no board file: its issue authors stay unknown (reported, never held).
+    board = {'records': []} if problem in s.OTHER else json.loads(s.site_snapshot(problem)[1])
     authors = {}
     for row in board['records']:
         names = row.get('authors') or []
