@@ -65,6 +65,7 @@ def publish_issue(run, artifact):
     Path(f'published/direct-submission-{number}-lean.json').write_text(s.canonical(env)+'\n')
     status='Lean Verified' if env['verification_status']=='passed' else env['verification_status']
     if selected.get('test_only'):status='TEST ONLY: '+status+' (never imported)'
+    elif env['verification_status']=='passed' and s.derivation_hold(selected):status+='. '+s.HOLD_TEXT.format(item='issue').removesuffix('.')
     # GitHub has no atomic artifact-check/comment-write operation. Describe the
     # immutable checkpoint, never current nanoda status: final publication can
     # race the last API read without making this historical statement false.

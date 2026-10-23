@@ -41,6 +41,15 @@ Before merging, the bot checks that the PR adds only its own new submission
 folder and that its head is the verified commit. An unsafe diff is closed with a reason.
 If the head changed, the bot skips the merge and leaves the PR open for the new check. A check does not transfer another author's credit.
 
+For each submission version, the bot also posts a derivation report: the closest
+verified submission of another author by identical Git files, the numbers of
+changed, added and removed files, whether only numeric constants changed, and
+whether the earlier credit lines are kept. The report quotes no file content.
+When at least 80% of the files are identical to a verified submission of another
+author and the other files change only numeric constants, the proof still runs,
+but a pass does not merge or close the submission and is not listed as Lean
+Verified until a maintainer reviews the credit.
+
 ## What Lean Verified means
 
 The proof establishes the submitted bound in our fixed computational model.

@@ -168,8 +168,10 @@ class PRTests(unittest.TestCase):
                 with self.assertRaises(ValueError):p.validate_run(dict(run,**{key:value}),self.request(),self.pr)
             with self.assertRaises(ValueError):p.validate_run(run,dict(self.request(),test_only=True),self.pr)
 
-    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False):
-        request=self.request();receipt=self.receipt();buf=io.BytesIO()
+    def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False, hold=False):
+        request=self.request()
+        if hold:request['derivation']={'status':'computed','hold':True}
+        receipt=self.receipt();buf=io.BytesIO()
         suffix='-lean' if stage=='lean' else ''
         if stage=='lean':
             receipt['verification_stage']='lean'
@@ -229,6 +231,21 @@ class PRTests(unittest.TestCase):
         self.assertEqual(result['disposition'],'merge');self.assertEqual(result['merge_commit'],'d'*40)
         merge=[c for c in calls if c[0].endswith('/merge')][0]
         self.assertEqual(merge[1]['sha'],'a'*40);self.assertEqual(merge[2],'PUT')
+
+    def test_a_derivation_hold_keeps_a_passing_pr_open_at_both_stages(self):
+        for stage in ['lean','final']:
+            result,calls=self.publish_fixture(hold=True,stage=stage)
+            self.assertEqual(result['disposition'],'keep_open');self.assertFalse(result['importable'])
+            self.assertIn('Held for maintainer review',result['reason'])
+            self.assertFalse([c for c in calls if c[0].endswith('/merge') or c[0]=='pulls/7'])
+            self.assertEqual([c[1] for c in calls if c[0]=='issues/7/labels'],[{'labels':['verification-needs-review']}])
+            self.assertTrue(result['request']['derivation']['hold'])
+        # A maintainer merged the held PR by hand: the recovery publication is the accepted merge.
+        result,calls=self.publish_fixture(hold=True,mutate_pr=lambda pr:pr.update(state='closed',merged=True,merge_commit_sha='d'*40))
+        self.assertEqual((result['disposition'],result['importable'],result['merge_commit']),('merge',True,'d'*40))
+        # A held proof that Lean rejects still closes.
+        result,_=self.publish_fixture(hold=True,rejection=True)
+        self.assertEqual(result['disposition'],'close')
 
     def test_publisher_attempt_and_raw_receipt_hash(self):
         for attempt in ['1','2']:

@@ -138,6 +138,13 @@ The publisher workflow's own run ID identifies where that artifact lives.
   The file-list hash covers canonical JSON of sorted `{path, mode, sha, size}`
   objects; `sha` is the Git blob SHA. JSON serialization matches the issue contract.
 - `request.record_gate` and `gate: ready|claimed_only|invalid_layout|superseded`.
+- `request.derivation` (absent before the derivation report, scripts/derivation.py):
+  `status: computed|no_match|not_computed`, the closest verified submission of
+  another author, file counts, `constants_only`, `credit` and `hold`. With `hold:
+  true` a passing result has `disposition: keep_open` and `importable: false`; a
+  maintainer who accepts the credit merges the PR by hand, and the importer then
+  admits that result. The issue route carries the same object as `derivation` in
+  its envelope, with `importable: false` on a hold.
 - `receipt`: full controller receipt with request, profile, generated target hash,
   per-theorem/per-kernel results, axiom audit, UTC checked_at, and artifact hashes.
   A skipped/failed setup may have no mathematical receipt.

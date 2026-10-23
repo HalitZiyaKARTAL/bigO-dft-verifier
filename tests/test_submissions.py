@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import submissions as s
+import derivation
 import verifier as v
 import queue_lease
 from verdicts import kernel_outcome, compile_error_comment
@@ -28,6 +29,11 @@ def issue(number=42, login='submitter', **kwargs):
 
 
 class SubmissionTests(unittest.TestCase):
+    def setUp(self):
+        # The selector's derivation report never reads GitHub in these tests.
+        offline = patch.object(derivation.Reader, 'get', side_effect=derivation.NotComputed('offline'))
+        offline.start(); self.addCleanup(offline.stop)
+
     def selected(self):
         item = issue()
         selected = s.issue_request(item, s.issue_input(item))
@@ -223,7 +229,9 @@ class SubmissionTests(unittest.TestCase):
                 self.assertEqual(len(list(Path('requests').glob('*.json'))),9)
                 self.assertTrue(Path('requests/13.json').exists())
                 self.assertFalse(Path('requests/1.json').exists())
-                self.assertEqual(posts,[])  # The selector stops as soon as ten are selected.
+                # The selector stops as soon as ten are selected: no Claimed reply to #14; only derivation reports.
+                self.assertEqual([p for p in posts if not p['body'].startswith(derivation.MARKER)],[])
+                self.assertEqual(sorted(json.loads(Path(f'requests/{n}.json').read_text())['derivation']['status'] for n in [13]),['not_computed'])
             finally:os.chdir(old)
 
     def test_comment_markers_are_not_admission_state(self):
@@ -268,8 +276,10 @@ class SubmissionTests(unittest.TestCase):
     def live(self):
         return s.issue_request(issue(), s.issue_input(issue()))
 
-    def status_report(self, receipt, gate=None, test_only=False):
-        selection=self.live();selection['test_only']=test_only;receipt['request']=selection['inputs'];artifact={'id':99,'name':'fixture','digest':'sha256:'+'f'*64,'archive_url':'https://github.com/bigospeedrun/verifier/actions/runs/123/artifacts/99'}
+    def status_report(self, receipt, gate=None, test_only=False, derivation=None):
+        selection=self.live();selection['test_only']=test_only
+        if derivation is not None:selection['derivation']=derivation
+        receipt['request']=selection['inputs'];artifact={'id':99,'name':'fixture','digest':'sha256:'+'f'*64,'archive_url':'https://github.com/bigospeedrun/verifier/actions/runs/123/artifacts/99'}
         with tempfile.TemporaryDirectory() as tmp:
             old=Path.cwd();os.chdir(tmp)
             try:
@@ -280,8 +290,11 @@ class SubmissionTests(unittest.TestCase):
                 def fake_api(path,data=None,method=None):
                     if data is None:return [] if '/comments' in path else issue()
                     calls.append((method,path,data))
-                with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40):
+                import pr_submissions
+                self.review=Mock()
+                with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40),patch.object(pr_submissions,'label_review',self.review):
                     s.report();s.publish()
+                self.envelope=json.loads(Path('published/direct-submission.json').read_text())
                 return json.loads(Path('published-comment.json').read_text()),calls
             finally:os.chdir(old)
 
@@ -291,6 +304,21 @@ class SubmissionTests(unittest.TestCase):
         self.assertIn('To submit a stronger bound, open a new issue. This issue now closes.',comment['body'])
         self.assertEqual(calls[0][1],'issues/42/comments');self.assertEqual(calls[0][2],{'body':comment['body']})
         self.assertEqual(calls[1],('PATCH','issues/42',{'state':'closed','state_reason':'completed'}))
+
+    def test_a_derivation_hold_keeps_a_pass_open_unimportable_and_pings_once(self):
+        held={'status':'computed','hold':True}
+        comment,calls=self.status_report(self.receipt(),derivation=held)
+        self.assertNotIn('close',comment);self.assertTrue(comment['review'])
+        self.assertIn('Held for maintainer review',comment['body'])
+        self.assertEqual(len(calls),1)  # The comment only: no close.
+        self.review.assert_called_once_with(42,'123 1')
+        self.assertFalse(self.envelope['importable']);self.assertEqual(self.envelope['derivation'],held)
+        # No hold: the normal pass closes and stays importable; a held rejection still closes.
+        comment,calls=self.status_report(self.receipt(),derivation={'status':'computed','hold':False})
+        self.assertEqual(comment['close'],'completed');self.assertTrue(self.envelope['importable']);self.review.assert_not_called()
+        rejected=self.receipt();rejected['kernels']['lean']['status']='rejected'
+        comment,_=self.status_report(rejected,derivation=held)
+        self.assertEqual(comment['close'],'not_planned');self.assertNotIn('review',comment)
 
     def test_genuine_rejection_closes_the_issue_as_not_planned(self):
         receipt=self.receipt();receipt['kernels']['lean']['status']='rejected';receipt['axiom_audit']={'status':'incomplete'}

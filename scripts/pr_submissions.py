@@ -332,7 +332,7 @@ def proof_candidate(pr):
                for path in [f['filename'], f.get('previous_filename') or ''])
 
 
-def select_candidate(issue, lease):
+def select_candidate(issue, lease, reader=None, comments=()):
     import queue_lease
     pr = api(f"pulls/{issue['number']}")
     if lease.admitted(queue_lease.admission_key({'route': 'pull_request', 'pr_number': pr['number'], 'head_sha': pr['head']['sha']})):
@@ -359,6 +359,12 @@ def select_candidate(issue, lease):
         record = s.current_record(selected['submission']['problem'], selected['pr_url'])
         selected['record_gate'] = record
         selected.update(gate='ready' if s.qualifies_for_run(selected['submission'], record) else 'claimed_only', reason='record_gate')
+        if reader is not None:
+            import derivation
+            report = derivation.safe_report(reader, selected['submission']['problem'], pr['user']['login'], f"direct-pr-{pr['number']}",
+                                            lambda: (derivation.pr_files(selected['changed_files'], selected['source_subdir']), s.REPOSITORY))
+            derivation.safe_post(pr['number'], selected['head_sha'], report, 'pull_request', comments)
+            selected['derivation'] = report
     except LayoutError as exc:
         selected.update(gate='invalid_layout', reason=str(exc))
     selected['verifier_commit'] = os.environ['GITHUB_SHA']
@@ -556,6 +562,9 @@ def publish_pr(artifact_override=None, stage="final"):
         disposition, reason = 'close', str(exc)
     except ValueError as exc:
         disposition, reason = 'keep_open', str(exc)
+    if disposition == 'merge' and not recovering_merge and s.derivation_hold(request):
+        # A maintainer who accepts the credit merges by hand; the site then lists the proof (data/direct_pr.py).
+        disposition, reason = 'keep_open', s.HOLD_TEXT.format(item='PR').removesuffix('.')
     if recovering_merge and disposition == 'close':
         disposition, reason = 'blocked', 'Advisory rejection blocks this previously merged proof'
     envelope = {'verification_stage': stage, 'schema_version': 2, 'route': 'pull_request', 'test_only': request.get('test_only', True),

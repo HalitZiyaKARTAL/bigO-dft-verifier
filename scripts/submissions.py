@@ -440,6 +440,8 @@ def select_bounded():
     if smoke.dispatch(lease):
         return
     Path('requests').mkdir(exist_ok=True)
+    import derivation
+    reader = derivation.Reader()  # One derivation call budget and cache for the whole scan.
     deadline = time.monotonic() + 240
     scanned = 0
     while scanned < 40 and len(selected) < 9 and time.monotonic() < deadline:
@@ -463,7 +465,7 @@ def select_bounded():
                 # One bounded comments page; do not walk attacker-sized threads.
                 comments = api(f"issues/{issue['number']}/comments?per_page=100&page=1")
                 if 'pull_request' in issue:
-                    request = pr.select_candidate(issue, lease)
+                    request = pr.select_candidate(issue, lease, reader, comments)
                     if request is None:
                         continue
                     route = 'pull_request'
@@ -479,7 +481,15 @@ def select_bounded():
                     if lease.admitted(queue_lease.admission_key(request)):
                         continue
                     record = current_record(submission['problem'], request['issue_url'])
-                    if not qualifies_for_run(submission, record):
+                    qualifies = qualifies_for_run(submission, record)
+                    if qualifies or not derivation.reported(issue['number'], digest, comments):
+                        report = derivation.safe_report(reader, submission['problem'], login, f"direct-issue-{issue['number']}",
+                                                        lambda: derivation.issue_files(reader, submission))
+                        # A Claimed-only issue is re-checked at each scan: retry a report that ran out of budget.
+                        if qualifies or report.get('reason') != 'API budget used':
+                            derivation.safe_post(issue['number'], digest, report, 'issue', comments)
+                        request['derivation'] = report
+                    if not qualifies:
                         marker = f"<!-- bos-claimed-v1 {issue['number']} {digest} -->"
                         if not any(is_bot(c) and c.get('body', '').startswith(marker) for c in comments):
                             api(f"issues/{issue['number']}/comments", {'body': marker + '\nThis submission is listed as Claimed; the bound does not qualify for a proof run.'})
@@ -577,8 +587,20 @@ def envelope(receipt, selected, run_id, run_attempt, verifier_commit, receipt_ur
             'issue_updated_at': selected['issue_updated_at'], 'receipt_url': receipt_url, 'run_url': run_url,
             'run_id': str(run_id), 'run_attempt': str(run_attempt), 'verifier_commit': verifier_commit,
             'status': 'fixture_only' if selected['test_only'] else status,
-            'verification_status': status, 'importable': not selected['test_only'],
+            'verification_status': status, 'importable': not selected['test_only'] and not derivation_hold(selected),
+            'derivation': selected.get('derivation'),
             'reason': reason, 'receipt': receipt}
+
+
+def derivation_hold(selected):
+    """The derivation report found a constants-only change of another author's verified submission:
+    a pass stays open and is not importable until a maintainer decides (scripts/derivation.py)."""
+    return (selected.get('derivation') or {}).get('hold') is True
+
+
+HOLD_TEXT = ('Held for maintainer review: the derivation report on this {item} found that this version changes only numeric '
+             'constants of another author\'s verified submission. This {item} stays open, and the result is not listed as '
+             'Lean Verified until a maintainer decides.')
 
 
 def receipt_artifact():
@@ -646,7 +668,9 @@ def report():
     close = None
     # A test_only (smoke) run never closes its issue: the hosted smoke identities must stay open.
     if not stale and not result['test_only'] and not (gate_path.exists() and json.loads(gate_path.read_text())['status'] == 'claimed_only'):
-        if result['status'] == 'passed':
+        if result['status'] == 'passed' and derivation_hold(selected):
+            body += '\n\n' + HOLD_TEXT.format(item='issue')
+        elif result['status'] == 'passed':
             close = 'completed'
             body += '\n\nTo submit a stronger bound, open a new issue. This issue now closes.'
         elif result['status'] == 'blocked' or rejected:
@@ -656,6 +680,8 @@ def report():
     payload = {'issue_number': selected['issue_number'], 'body': body}
     if close:
         payload['close'] = close
+    if result['status'] == 'passed' and derivation_hold(selected) and not stale and not result['test_only']:
+        payload['review'] = True
     Path('published-comment.json').write_text(canonical(payload) + '\n')
 
 
@@ -667,6 +693,10 @@ def publish():
     # Only the report comment carries a close decision; earlier comments never close.
     if comment.get('close'):
         api(f"issues/{comment['issue_number']}", {'state': 'closed', 'state_reason': comment['close']}, method='PATCH')
+    if comment.get('review'):
+        # A derivation hold: the review label and one maintainer ping for this run attempt.
+        import pr_submissions
+        pr_submissions.label_review(comment['issue_number'], f"{os.environ['GITHUB_RUN_ID']} {os.environ['GITHUB_RUN_ATTEMPT']}")
 
 
 if __name__ == '__main__':
