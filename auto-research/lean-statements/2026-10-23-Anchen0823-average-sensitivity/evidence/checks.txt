@@ -1,0 +1,10 @@
+validate	Offline checks and verifier regression suite	2026-10-23T10:29:51.6363805Z PASS: package inventory, SHA-256, frozen model, challenge and dependency pins
+validate	Offline checks and verifier regression suite	2026-10-23T10:29:51.6365128Z {"dictator_average_sensitivity": "1", "multilinear_polynomials": 6651, "nonmultilinear_polynomials": 36, "sign_at_zero": 1, "wrong_coefficients_rejected": ["0", "999/1000"]}
+validate	Offline checks and verifier regression suite	2026-10-23T10:29:51.6366033Z PASS: exact finite sanity checks; these are not a universal proof or a Comparator receipt
+validate	Offline checks and verifier regression suite	2026-10-23T10:29:52.0300890Z Ran 77 tests in 0.240s
+validate	Offline checks and verifier regression suite	2026-10-23T10:29:52.0301338Z OK
+validate	Full positive baseline and allowed axioms	2026-10-23T10:31:53.4045805Z Submission.lean:4718:90: warning: Used `tac1 <;> tac2` where `(tac1; tac2)` would suffice
+validate	Full positive baseline and allowed axioms	2026-10-23T10:31:56.4760448Z PASS: package inventory, SHA-256, frozen model, challenge and dependency pins
+validate	Full positive baseline and allowed axioms	2026-10-23T10:31:56.4761748Z {"dictator_average_sensitivity": "1", "multilinear_polynomials": 6651, "nonmultilinear_polynomials": 36, "sign_at_zero": 1, "wrong_coefficients_rejected": ["0", "999/1000"]}
+validate	Full positive baseline and allowed axioms	2026-10-23T10:31:56.4763155Z PASS: exact finite sanity checks; these are not a universal proof or a Comparator receipt
+validate	Full positive baseline and allowed axioms	2026-10-23T10:31:56.4763856Z PASS: full public proof, exact model/target bodies, coefficient-eight baseline, allowed axioms

@@ -1,0 +1,15 @@
+{
+  "algorithm": "sha256",
+  "sha256": {
+    "code/BaselineCheck.lean": "f42ea60dac6325a44dfb7398ef5bf96fc57f26195b1b0bba5f31c203e3f90ca2",
+    "data/expected.json": "f8a9a9837a84b219f0b80b5e2b0615647428a04b508d28eb49ab82722addb27b",
+    "data/site-row.json": "89eb17ea5cbb564eae31feb0a76280dcc01899ef97dd5080fd3c0c028545f141",
+    "data/source-hashes.json": "4c4207c703853c265838aba105b01857e59a91f14d479755410b3ef737c5b78c",
+    "evidence/checks.txt": "79a823ce07b327012d22d2c2d4f41e8978091055d306bed7932904d67089fbe4",
+    "evidence/validation.json": "2ed48f266042b92fb3ceae8af327d41751e8e45d63ba43183dec7fc8eee5398c",
+    "NOTICE.md": "78aec997403c6278a1a32a01a1fbcd561b35b6d7545d7b8b27028bbe14648511",
+    "README.md": "cb7c9c85a6db08660666468f7896f8beb4f7366c2bbd0ec8678e66e7e204cc70",
+    "RESULT.json": "7249ccd5ef9e23f9fb1a233e106e4b1651395dead9b2289f55cb0169cda48487",
+    "verify.py": "d71bda6612b6074d6c9695f0da1a6f431c9bbb135637bd14ac54029ef5a2913b"
+  }
+}

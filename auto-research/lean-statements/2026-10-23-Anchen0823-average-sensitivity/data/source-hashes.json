@@ -1,0 +1,9 @@
+{
+  "challenges/average-sensitivity/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+  "challenges/average-sensitivity/NOTICE": "7dd315cee68d77f60da5605f27578b9ddb3415caa45b5bdc8bfeb43aa464f2cb",
+  "challenges/average-sensitivity/OAI/Combinatorics/GotsmanLinial/Model.lean": "babc05672496b5525c163c87b9945597754a46f3fb89c98ab43e06fa52ba7f0d",
+  "challenges/average-sensitivity/README.md": "92b4369785b5b1540f76f1202b28ac9622c76ddf04f935938ad0ec6727a4b834",
+  "challenges/average-sensitivity/Statement.lean": "f5e157318dcdaae7fd6627b1be15b48a73d04c5474c88ac00bc4aad6704f9a62",
+  "challenges/average-sensitivity/provenance.json": "de24e658c7f2973d6ba30c3377dd8fee688d647743564a2cefc5a31666834c77",
+  "profiles/anthropic-lake-manifest.json": "484af05025301c3920dfeb644f6dbb7f02b05f596bf48831c9324e383694db25"
+}

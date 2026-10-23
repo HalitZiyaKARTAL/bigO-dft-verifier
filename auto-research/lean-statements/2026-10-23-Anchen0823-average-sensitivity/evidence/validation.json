@@ -1,0 +1,24 @@
+{
+  "run_url": "https://github.com/Anchen0823/verifier/actions/runs/39939498877",
+  "validation_commit": "6529c825f52609fbf9fa4dd7c0303510b6602992",
+  "package_source_commit": "0c81e31",
+  "conclusion": "success",
+  "date": "2026-10-23",
+  "runner": "ubuntu-latest",
+  "lean": "leanprover/lean4:v4.33.1",
+  "mathlib": "0df444a360eaa60ab8c11dca51a86af692955474",
+  "proof_commit": "cb8c10538e613329be16f9a949d0d75a4c7c67f0",
+  "regression_tests": 77,
+  "axioms": [
+    "propext",
+    "Classical.choice",
+    "Quot.sound"
+  ],
+  "tested_sha256": {
+    "verify.py": "d71bda6612b6074d6c9695f0da1a6f431c9bbb135637bd14ac54029ef5a2913b",
+    "code/BaselineCheck.lean": "f42ea60dac6325a44dfb7398ef5bf96fc57f26195b1b0bba5f31c203e3f90ca2",
+    "data/source-hashes.json": "4c4207c703853c265838aba105b01857e59a91f14d479755410b3ef737c5b78c",
+    "data/expected.json": "f8a9a9837a84b219f0b80b5e2b0615647428a04b508d28eb49ab82722addb27b"
+  },
+  "scope": "Research validation; not a production Comparator receipt. Full proof has one pre-existing tactic-style warning."
+}

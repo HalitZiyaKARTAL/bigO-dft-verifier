@@ -1,0 +1,10 @@
+{
+  "multilinear_polynomials": 6651,
+  "nonmultilinear_polynomials": 36,
+  "wrong_coefficients_rejected": [
+    "0",
+    "999/1000"
+  ],
+  "dictator_average_sensitivity": "1",
+  "sign_at_zero": 1
+}

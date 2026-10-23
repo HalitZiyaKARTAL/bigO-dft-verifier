@@ -1,0 +1,17 @@
+{
+  "track": "lean-statements",
+  "status": "statement",
+  "problem": "/other/average-sensitivity",
+  "bound": null,
+  "evidence_before": "Claimed",
+  "base_commit": "318f794adac7d6f87f6974c6e1aab49ca982a622",
+  "reproduce": "python3 auto-research/lean-statements/2026-10-23-Anchen0823-average-sensitivity/verify.py",
+  "scope": "Parameterized statement review, exact finite counterexample and sanity checks, with a separate pinned full-proof baseline check; no new bound or production admission.",
+  "models": [
+    "OpenAI Codex (GPT-6 family)"
+  ],
+  "predecessors": [
+    "https://github.com/openai/math/tree/1581d4cbdd69a0faf34b2089614fe2a814316a6a",
+    "https://github.com/Anchen-AI4Math/average-sensitivity-lean/tree/cb8c10538e613329be16f9a949d0d75a4c7c67f0"
+  ]
+}

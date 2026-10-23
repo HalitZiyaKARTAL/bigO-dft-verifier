@@ -1,0 +1,40 @@
+{
+  "source": "https://bigospeedrun.com/chat-knowledge.json",
+  "retrieved_date": "2026-10-23",
+  "feed_updated_at": "2026-10-23T09:17:29Z",
+  "response_sha256": "7fba0c3459882d07148ba8a5960b08bacf69da650a00bc8ef83ca388b183946a",
+  "row": {
+    "path": "/other/average-sensitivity",
+    "title": "Average sensitivity",
+    "aliases": [],
+    "openaiFamily": "127",
+    "rankedQuantity": "C\\text{ in }\\mathrm{AS}(f)\\le Cd\\sqrt n",
+    "better": "A lower value is better.",
+    "statement": "The quantity is the universal coefficient \\(C\\) in \\(\\mathrm{AS}(f)\\le Cd\\sqrt n\\) for polynomial threshold functions of degree at most \\(d\\), with \\(1\\le d\\le n\\) and \\(\\operatorname{sign}(0)=1\\). A lower coefficient is better.",
+    "baseline": {
+      "bound": "\\mathrm{AS}(f)\\le 8d\\sqrt n",
+      "source": "https://github.com/openai/math/blob/adc7f1241b42e322a6451854ab7e4b4c146bf78a/preprints/Average-Sensitivity-of-Polynomial-Threshold-Functions-September-25-2026/main.pdf",
+      "date": "2026-10-06"
+    },
+    "current": {
+      "bound": "\\mathrm{AS}(f)\\le 3.192d\\sqrt n",
+      "exactValue": "399/125",
+      "conditions": "The paper rebuilds the compensated coupling argument of Lagdive, Aglave and Damre on OpenAI’s weighted filtration. That argument gives the coefficient \\(8/\\sqrt{2\\pi}\\approx3.1915\\), and an exact rational certificate rounds it up to \\(399/125\\). The paper states it for all integers \\(n,d\\ge1\\) with \\(\\operatorname{sgn}(0)=1\\), and is dated October 17, 2026.",
+      "evidence": "Claimed",
+      "authors": [
+        "Qiuyu Chen (Euler)"
+      ],
+      "date": "2026-10-19",
+      "source": "https://github.com/canghaimeng/openai-math-improvement/blob/b3c7abea0d5e392777498816ca837eded8b85669/problems/bound-127/README.md",
+      "proofScope": "No Lean proof is supplied for this result. The proof is the PDF paper in the repository; no independent check."
+    },
+    "claimCount": 3,
+    "relevantRepos": [
+      {
+        "name": "log-prathm/ptf-average-sensitivity",
+        "url": "https://github.com/log-prathm/ptf-average-sensitivity",
+        "note": "The dimension-dependent refinements are separate."
+      }
+    ]
+  }
+}
