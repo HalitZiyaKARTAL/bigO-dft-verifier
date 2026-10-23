@@ -142,8 +142,10 @@ The publisher workflow's own run ID identifies where that artifact lives.
   `status: computed|no_match|not_computed`, the closest verified submission of
   another author, file counts, `constants_only`, `credit` and `hold`. With `hold:
   true` a passing result has `disposition: keep_open` and `importable: false`; a
-  maintainer who accepts the credit merges the PR by hand, and the importer then
-  admits that result. The issue route carries the same object as `derivation` in
+  maintainer who accepts the credit adds the entry that the bot's hold comment
+  (marker bos-derivation-hold-v1) shows to the site's data/review-decisions.json;
+  the next selection scan then merges the PR at the held head (a hand merge works
+  too), and the importer admits that result. The issue route carries the same object as `derivation` in
   its envelope, with `importable: false` on a hold.
 - `receipt`: full controller receipt with request, profile, generated target hash,
   per-theorem/per-kernel results, axiom audit, UTC checked_at, and artifact hashes.

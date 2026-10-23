@@ -48,7 +48,10 @@ whether the earlier credit lines are kept. The report quotes no file content.
 When at least 80% of the files are identical to a verified submission of another
 author and the other files change only numeric constants, the proof still runs,
 but a pass does not merge or close the submission and is not listed as Lean
-Verified until a maintainer reviews the credit.
+Verified until a maintainer reviews the credit. The bot's hold comment names the
+earlier submission and the entry that releases the hold (in the site's
+data/review-decisions.json); with that entry, the next scan merges the PR or
+closes the issue, and the site lists the result.
 
 ## What Lean Verified means
 

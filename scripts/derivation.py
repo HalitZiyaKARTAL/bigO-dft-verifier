@@ -38,6 +38,11 @@ class NotComputed(Exception):
     pass
 
 
+class Defer(Exception):
+    """The scan ran out of read budget before the report of a candidate that would run: select it at
+    the next scan, so that a burst of copies (#43, #44 and #46 came within hours) cannot pass unreported."""
+
+
 class Reader:
     """Cached GitHub API reads with one call budget for the whole scan."""
 
@@ -309,14 +314,23 @@ def pr_files(records, folder):
             if source_file(r['path'][len(folder) + 1:])}
 
 
-def safe_report(reader, problem, login, self_key, files):
-    """compute() that never raises: a failure gives a not_computed report without a hold."""
+def safe_report(reader, problem, login, self_key, files, defer=False):
+    """compute() that never raises: a failure gives a not_computed report without a hold.
+
+    With defer (a candidate that would start a run), a used-up budget raises Defer instead, unless
+    the report had the whole budget of a fresh scan: then it is not_computed, so that one oversized
+    submission cannot wait forever."""
+    fresh = reader.calls == 0
     try:
         cand, repo = files()
         return compute(reader, problem, login, self_key, cand, repo)
     except NotComputed as error:
+        if defer and not fresh and str(error) == 'API budget used':
+            raise Defer() from None
         reason = str(error)  # A fixed message of this module.
     except s.ScanLimit:
+        if defer:
+            raise Defer() from None
         reason = 'API budget used'
     except Exception:  # Never block or hold a submission because the report failed.
         reason = 'a read failed'

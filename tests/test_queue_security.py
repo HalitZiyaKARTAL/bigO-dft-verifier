@@ -15,6 +15,12 @@ import submissions as s
 
 
 class QueueSecurityTests(unittest.TestCase):
+    def setUp(self):
+        import derivation
+        # The selector's release pass and derivation reports never read GitHub in these tests.
+        for target in [patch.object(s, 'release'), patch.object(derivation.Reader, 'get', side_effect=derivation.NotComputed('offline'))]:
+            target.start(); self.addCleanup(target.stop)
+
     def test_active_batch_cannot_be_replaced(self):
         def api(path, data=None, method=None):
             if path.startswith('git/ref/'):return {'object':{'sha':'old'}}

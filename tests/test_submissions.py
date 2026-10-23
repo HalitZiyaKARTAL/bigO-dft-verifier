@@ -33,6 +33,8 @@ class SubmissionTests(unittest.TestCase):
         # The selector's derivation report never reads GitHub in these tests.
         offline = patch.object(derivation.Reader, 'get', side_effect=derivation.NotComputed('offline'))
         offline.start(); self.addCleanup(offline.stop)
+        no_release = patch.object(s, 'release')  # The release pass has its own tests.
+        no_release.start(); self.addCleanup(no_release.stop)
 
     def selected(self):
         item = issue()
@@ -292,7 +294,7 @@ class SubmissionTests(unittest.TestCase):
                     calls.append((method,path,data))
                 import pr_submissions
                 self.review=Mock()
-                with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40),patch.object(pr_submissions,'label_review',self.review):
+                with patch.object(s,'api',side_effect=fake_api),patch.object(s,'receipt_artifact',return_value=artifact),patch.dict(os.environ,GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40),patch.object(pr_submissions,'hold_ping',self.review):
                     s.report();s.publish()
                 self.envelope=json.loads(Path('published/direct-submission.json').read_text())
                 return json.loads(Path('published-comment.json').read_text()),calls
@@ -308,17 +310,18 @@ class SubmissionTests(unittest.TestCase):
     def test_a_derivation_hold_keeps_a_pass_open_unimportable_and_pings_once(self):
         held={'status':'computed','hold':True}
         comment,calls=self.status_report(self.receipt(),derivation=held)
-        self.assertNotIn('close',comment);self.assertTrue(comment['review'])
+        self.assertNotIn('close',comment);self.assertEqual(comment['hold']['derivation'],held)
         self.assertIn('Held for maintainer review',comment['body'])
         self.assertEqual(len(calls),1)  # The comment only: no close.
-        self.review.assert_called_once_with(42,'123 1')
+        live=self.live()
+        self.review.assert_called_once_with(42,'issue',live['submission_sha256'],live['issue_body_sha256'],held)
         self.assertFalse(self.envelope['importable']);self.assertEqual(self.envelope['derivation'],held)
         # No hold: the normal pass closes and stays importable; a held rejection still closes.
         comment,calls=self.status_report(self.receipt(),derivation={'status':'computed','hold':False})
         self.assertEqual(comment['close'],'completed');self.assertTrue(self.envelope['importable']);self.review.assert_not_called()
         rejected=self.receipt();rejected['kernels']['lean']['status']='rejected'
         comment,_=self.status_report(rejected,derivation=held)
-        self.assertEqual(comment['close'],'not_planned');self.assertNotIn('review',comment)
+        self.assertEqual(comment['close'],'not_planned');self.assertNotIn('hold',comment)
 
     def test_genuine_rejection_closes_the_issue_as_not_planned(self):
         receipt=self.receipt();receipt['kernels']['lean']['status']='rejected';receipt['axiom_audit']={'status':'incomplete'}
@@ -377,8 +380,89 @@ class BoundDigitsTests(unittest.TestCase):
         self.assertFalse(s.qualifies_for_run(self.sub('3sum', '4800698642525000001/2500000000000000000'), record))
 
 
+class ReleaseTests(unittest.TestCase):
+    """The lead's derivations entry in the site's review-decisions.json releases a held result (2026-10-23)."""
+    DIGEST = 'd' * 64
+
+    def run_release(self, item, pings, decision='approved', head='a' * 40, digest=None):
+        import pr_submissions as pr
+        calls = []
+        decisions = {'derivations': [{'id': ('direct-pr-' if 'pull_request' in item else 'direct-issue-') + '7',
+                                      'submission_sha256': digest or self.DIGEST, 'decision': decision}]}
+        def api(path, data=None, method=None):
+            if data is not None or method:
+                calls.append((method, path, data)); return {}
+            if path == 'issues/7': return item
+            if path == 'pulls/7': return {'head': {'sha': head}}
+            if path.startswith('issues/7/comments'): return pings
+            raise AssertionError(path)
+        with patch.object(s, 'api', side_effect=api), patch.object(pr, 'site_file', return_value=json.dumps(decisions).encode()):
+            s.release()
+        return calls
+
+    def ping(self, version, digest=None, login='github-actions[bot]'):
+        import pr_submissions as pr
+        return {'user': {'login': login, 'type': 'Bot' if 'bot' in login else 'User'},
+                'body': f'{pr.HOLD_MARKER}7 {digest or self.DIGEST} {version} -->\nHeld'}
+
+    def test_an_approval_merges_a_held_pr_at_its_held_head_only(self):
+        pr_item = {'number': 7, 'state': 'open', 'pull_request': {}}
+        calls = self.run_release(pr_item, [self.ping('a' * 40)])
+        self.assertEqual(calls, [('PUT', 'pulls/7/merge', {'sha': 'a' * 40, 'merge_method': 'squash'})])
+        self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40)], head='b' * 40), [])  # The head moved.
+        self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40, login='attacker')]), [])  # Not the bot's ping.
+        self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40, digest='e' * 64)]), [])  # Another version's digest.
+        self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40)], decision='rejected'), [])
+        self.assertEqual(self.run_release(dict(pr_item, state='closed'), [self.ping('a' * 40)]), [])
+
+    def test_an_approval_closes_a_held_issue_with_the_same_body(self):
+        item = issue(7)
+        calls = self.run_release(item, [self.ping(s.body_hash(item['body']))])
+        self.assertEqual([c[:2] for c in calls], [(None, 'issues/7/comments'), ('PATCH', 'issues/7')])
+        self.assertEqual(calls[1][2], {'state': 'closed', 'state_reason': 'completed'})
+        self.assertEqual(self.run_release(item, [self.ping('f' * 64)]), [])  # The body was edited after the hold.
+        # Two held versions of the same submission: the current body matches the second ping.
+        self.assertEqual(len(self.run_release(item, [self.ping('f' * 64), self.ping(s.body_hash(item['body']))])), 2)
+
+    def test_a_scan_out_of_budget_defers_a_qualifying_issue_without_reserving_it(self):
+        import queue_lease
+        lease = Mock(state={'page': 1, 'offset': 0}, admitted=Mock(return_value=False))
+        def report(reader, *args, defer=False):
+            if defer: raise derivation.Defer()
+            return {'status': 'not_computed', 'hold': False}
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path.cwd(); os.chdir(tmp)
+            try:
+                with patch.dict(os.environ, GITHUB_OUTPUT=str(Path(tmp)/'output')), patch.object(queue_lease, 'acquire', return_value=lease), \
+                     patch.object(s, 'current_record', return_value={'score': '1/2000', 'score_relation': 'attained'}), \
+                     patch.object(s, 'api', side_effect=lambda p, data=None: [issue(5), issue(6, 'other')] if p.startswith('issues?') else []), \
+                     patch.object(s, 'acknowledge'), patch.object(s, 'release'), patch.object(derivation, 'safe_report', side_effect=report):
+                    s.select()
+                self.assertEqual(list(Path('requests').glob('*.json')), [])
+                lease.reserve.assert_not_called()
+                self.assertEqual(lease.state, {'page': 1, 'offset': 0})  # The next scan starts at #5 again.
+            finally: os.chdir(old)
+
+    def test_safe_report_defers_only_after_other_reads_of_the_scan(self):
+        reader = derivation.Reader(limit=0)
+        files = lambda: ({'A.lean': ('a' * 40, 1)}, s.REPOSITORY)
+        # A fresh reader with no budget at all: not computed, not deferred (an oversized submission cannot wait forever).
+        self.assertEqual(derivation.safe_report(reader, 'dft', 'x', 'direct-issue-1', files, defer=True)['reason'], 'API budget used')
+        reader.calls = 1
+        with self.assertRaises(derivation.Defer):
+            derivation.safe_report(reader, 'dft', 'x', 'direct-issue-1', files, defer=True)
+        self.assertEqual(derivation.safe_report(reader, 'dft', 'x', 'direct-issue-1', files)['status'], 'not_computed')
+        with patch.object(derivation, 'compute', side_effect=s.ScanLimit('scan')):
+            with self.assertRaises(derivation.Defer):
+                derivation.safe_report(derivation.Reader(), 'dft', 'x', 'direct-issue-1', files, defer=True)
+
+
 class AcknowledgeTests(unittest.TestCase):
     """Every open submission gets one reply per version at the next scan (issue #35, 2026-10-21)."""
+    def setUp(self):
+        no_release = patch.object(s, 'release')
+        no_release.start(); self.addCleanup(no_release.stop)
+
     def run_ack(self, items, comments, pulls=None, proof=True, race=None):
         posts, deleted, self.proof_calls = [], [], 0
         ids = iter(range(1000, 2000))

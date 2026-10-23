@@ -170,7 +170,7 @@ class PRTests(unittest.TestCase):
 
     def publish_fixture(self, mutate_pr=None, unsafe=False, conclusion='success', omit_receipt=False, publisher_attempt='2', change_before_close=False, run_event='schedule', artifact_size=None, stage='final', rejection=False, merged_by_other=False, hold=False):
         request=self.request()
-        if hold:request['derivation']={'status':'computed','hold':True}
+        if hold:request['derivation']={'status':'computed','hold':True,'closest':{'key':'direct-pr-41','url':'https://github.com/bigospeedrun/verifier/pull/41'}}
         receipt=self.receipt();buf=io.BytesIO()
         suffix='-lean' if stage=='lean' else ''
         if stage=='lean':
@@ -240,12 +240,25 @@ class PRTests(unittest.TestCase):
             self.assertFalse([c for c in calls if c[0].endswith('/merge') or c[0]=='pulls/7'])
             self.assertEqual([c[1] for c in calls if c[0]=='issues/7/labels'],[{'labels':['verification-needs-review']}])
             self.assertTrue(result['request']['derivation']['hold'])
+            pings=[c[1]['body'] for c in calls if c[0]=='issues/7/comments' and p.HOLD_MARKER in c[1]['body']]
+            self.assertEqual(len(pings),1)
+            self.assertTrue(pings[0].startswith(f"{p.HOLD_MARKER}7 {self.request()['submission_sha256']} {'a'*40} -->"))
+            self.assertIn('[direct-pr-41](https://github.com/bigospeedrun/verifier/pull/41)',pings[0])
+            self.assertIn('"id":"direct-pr-7"',pings[0]);self.assertIn('merges this PR',pings[0])
         # A maintainer merged the held PR by hand: the recovery publication is the accepted merge.
         result,calls=self.publish_fixture(hold=True,mutate_pr=lambda pr:pr.update(state='closed',merged=True,merge_commit_sha='d'*40))
         self.assertEqual((result['disposition'],result['importable'],result['merge_commit']),('merge',True,'d'*40))
         # A held proof that Lean rejects still closes.
         result,_=self.publish_fixture(hold=True,rejection=True)
         self.assertEqual(result['disposition'],'close')
+
+    def test_the_hold_ping_quotes_only_validated_links(self):
+        calls=[]
+        with patch.object(p,'api',side_effect=lambda path,data=None,method=None:calls.append((path,data)) or ([] if data is None else {})):
+            p.hold_ping(9,'issue','d'*64,'e'*64,{'closest':{'key':'direct-pr-41](https://evil.example)','url':'https://evil.example'}})
+        body=[d['body'] for path,d in calls if path=='issues/9/comments' and d][0]
+        self.assertNotIn('evil',body);self.assertIn('an earlier submission',body);self.assertIn('closes this issue',body)
+        with self.assertRaises(ValueError):p.hold_ping(9,'issue','bad','e'*64,{})
 
     def test_publisher_attempt_and_raw_receipt_hash(self):
         for attempt in ['1','2']:

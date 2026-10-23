@@ -422,6 +422,69 @@ def acknowledge():
             print(f"Acknowledgement of #{int(item.get('number') or 0)} failed: {type(error).__name__}", flush=True)
 
 
+RELEASE_CALLS = 40
+RELEASE_ENTRIES = 20
+
+
+def release():
+    """Act on the lead's approvals of derivation holds: an entry in the site's data/review-decisions.json
+    under derivations ({id, submission_sha256, decision: approved}) merges a held PR at its held head,
+    or closes a held issue as completed. Only the bot's hold ping binds that digest to the held version
+    (PR head or issue body), and the ping is posted only after the proof checks passed; an approval
+    without a matching ping, or for a changed head or body, does nothing. The site lists the result at
+    its next refresh (Lead, 2026-10-23: one entry releases the merge and the listing)."""
+    import pr_submissions as pr
+    budget = {'calls': 0, 'deadline': time.monotonic() + 30}
+
+    def call(path, data=None, method=None):
+        if budget['calls'] >= RELEASE_CALLS or time.monotonic() >= budget['deadline']:
+            raise AckLimit('release budget used')
+        budget['calls'] += 1
+        return api(path, data, method)
+
+    decisions = json.loads(pr.site_file('data/review-decisions.json'))
+    approved = [d for d in decisions.get('derivations', []) if isinstance(d, dict) and d.get('decision') == 'approved']
+    for entry in approved[-RELEASE_ENTRIES:]:
+        match = re.fullmatch(r'direct-(issue|pr)-([1-9][0-9]{0,8})', str(entry.get('id')))
+        digest = str(entry.get('submission_sha256'))
+        if not match or not re.fullmatch('[0-9a-f]{64}', digest):
+            continue
+        number = int(match[2])
+        try:
+            item = call(f'issues/{number}')
+            if item.get('state') != 'open' or ('pull_request' in item) != (match[1] == 'pr'):
+                continue
+            prefix = f'{pr.HOLD_MARKER}{number} {digest} '
+            # Every held version of this digest (an issue body edit that keeps the submission posts a second ping).
+            versions = set()
+            for page in range(1, 4):
+                batch = call(f'issues/{number}/comments?per_page=100&page={page}')
+                for c in batch:
+                    found = re.match(r'([0-9a-f]{40}|[0-9a-f]{64}) -->', (c.get('body') or '')[len(prefix):]) if is_bot(c) and (c.get('body') or '').startswith(prefix) else None
+                    if found:
+                        versions.add(found[1])
+                if len(batch) < 100:
+                    break
+            if not versions:
+                continue
+            if match[1] == 'pr':
+                version = call(f'pulls/{number}')['head']['sha']
+                if version not in versions:
+                    continue
+                # GitHub compares the head atomically; a moved head declines the merge.
+                call(f'pulls/{number}/merge', {'sha': version, 'merge_method': 'squash'}, 'PUT')
+            else:
+                if body_hash(item.get('body') or '') not in versions:
+                    continue
+                marker = f'<!-- bos-derivation-release-v1 {number} {digest} -->'
+                comment_once(number, marker + '\nA maintainer reviewed the credit and released this result. This issue now closes.', call, key=marker)
+                call(f'issues/{number}', {'state': 'closed', 'state_reason': 'completed'}, 'PATCH')
+        except AckLimit:
+            raise
+        except Exception as error:
+            print(f'Release of #{number} failed: {type(error).__name__}', flush=True)
+
+
 def select_bounded():
     """One trusted batch; resumable 40-candidate/4-minute scan, ten accounts."""
     import queue_lease
@@ -432,6 +495,10 @@ def select_bounded():
         acknowledge()
     except Exception as error:  # A non-critical pass: any error stops only the pass, never the selection.
         print('Acknowledgement pass stopped: ' + type(error).__name__, flush=True)
+    try:
+        release()
+    except Exception as error:  # A non-critical pass, like the acknowledgement pass.
+        print('Release pass stopped: ' + type(error).__name__, flush=True)
     import smoke
     lease = queue_lease.acquire(queue_lease.SMOKE_REF) if smoke.requested() else queue_lease.acquire()
     if lease is None:
@@ -484,7 +551,7 @@ def select_bounded():
                     qualifies = qualifies_for_run(submission, record)
                     if qualifies or not derivation.reported(issue['number'], digest, comments):
                         report = derivation.safe_report(reader, submission['problem'], login, f"direct-issue-{issue['number']}",
-                                                        lambda: derivation.issue_files(reader, submission))
+                                                        lambda: derivation.issue_files(reader, submission), defer=qualifies)
                         # A Claimed-only issue is re-checked at each scan: retry a report that ran out of budget.
                         if qualifies or report.get('reason') != 'API budget used':
                             derivation.safe_post(issue['number'], digest, report, 'issue', comments)
@@ -501,6 +568,10 @@ def select_bounded():
                 Path(f"requests/{issue['number']}.json").write_text(canonical(request) + '\n')
                 selected.append({'issue_number': issue['number'], 'login': login, 'route': route})
                 selection_outputs(selected)
+            except derivation.Defer:
+                # Not reserved: the next scan starts at this candidate with a fresh read budget.
+                lease.state.update(page=page, offset=index)
+                return
             finally:
                 lease.save()
         if len(batch) < 50:
@@ -681,7 +752,8 @@ def report():
     if close:
         payload['close'] = close
     if result['status'] == 'passed' and derivation_hold(selected) and not stale and not result['test_only']:
-        payload['review'] = True
+        payload['hold'] = {'submission_sha256': selected['submission_sha256'], 'version': selected['issue_body_sha256'],
+                           'derivation': selected['derivation']}
     Path('published-comment.json').write_text(canonical(payload) + '\n')
 
 
@@ -693,10 +765,11 @@ def publish():
     # Only the report comment carries a close decision; earlier comments never close.
     if comment.get('close'):
         api(f"issues/{comment['issue_number']}", {'state': 'closed', 'state_reason': comment['close']}, method='PATCH')
-    if comment.get('review'):
-        # A derivation hold: the review label and one maintainer ping for this run attempt.
+    if comment.get('hold'):
+        # A derivation hold: the review label and one maintainer ping that names the release entry.
         import pr_submissions
-        pr_submissions.label_review(comment['issue_number'], f"{os.environ['GITHUB_RUN_ID']} {os.environ['GITHUB_RUN_ATTEMPT']}")
+        hold = comment['hold']
+        pr_submissions.hold_ping(comment['issue_number'], 'issue', hold['submission_sha256'], hold['version'], hold['derivation'])
 
 
 if __name__ == '__main__':

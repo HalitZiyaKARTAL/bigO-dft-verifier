@@ -279,28 +279,33 @@ def local_entries():
     return frozenset((path, '100644', blob_sha((ROOT / path).read_bytes())) for path in protected_files())
 
 
+def site_file(path):
+    """The bytes of a file of the site's main commit, checked against its Git blob hash."""
+    def read(part):
+        req = urllib.request.Request('https://api.github.com/repos/bigospeedrun/site/' + part,
+                                     headers={'Accept': 'application/vnd.github+json',
+                                              'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
+        return s.github_read_retry(req, github_opener().open, json.load, part)
+    sha = read('commits/main')['sha']
+    if not SHA.fullmatch(sha):
+        raise ValueError('Invalid site commit')
+    blob = read(f'contents/{path}?ref={sha}')['sha']
+    if not SHA.fullmatch(blob):
+        raise ValueError('Invalid site blob')
+    raw = base64.b64decode(read(f'git/blobs/{blob}')['content'], validate=False)
+    if blob_sha(raw) != blob:
+        raise ValueError('Site blob hash mismatch')
+    return raw
+
+
 @lru_cache(maxsize=1)
 def trusted_controllers():
     """The protected files of every trusted verifier revision: this checkout, and every
     revision that the site lists in data/direct-trust.json at its current main commit
     (controller_blobs and previous_controller_blobs). The site pushes a trust entry before
     each verifier push, so a PR or a run from an older trusted revision still matches."""
-    def read(path):
-        req = urllib.request.Request('https://api.github.com/repos/bigospeedrun/site/' + path,
-                                     headers={'Accept': 'application/vnd.github+json',
-                                              'Authorization': 'Bearer ' + os.environ['GH_TOKEN']})
-        return s.github_read_retry(req, github_opener().open, json.load, path)
     try:
-        sha = read('commits/main')['sha']
-        if not SHA.fullmatch(sha):
-            raise ValueError('Invalid site commit')
-        blob = read(f'contents/{SITE_TRUST}?ref={sha}')['sha']
-        if not SHA.fullmatch(blob):
-            raise ValueError('Invalid trust blob')
-        raw = base64.b64decode(read(f'git/blobs/{blob}')['content'], validate=False)
-        if blob_sha(raw) != blob:
-            raise ValueError('Trust blob hash mismatch')
-        trust = json.loads(raw)
+        trust = json.loads(site_file(SITE_TRUST))
         revisions = [trust['controller_blobs'], *trust['previous_controller_blobs'].values()]
         known = {frozenset((path, e['mode'], e['sha']) for path, e in blobs.items() if protected(path)) for blobs in revisions}
     # OSError covers URLError, ConnectionError and TimeoutError; HTTPException covers IncompleteRead.
@@ -362,8 +367,10 @@ def select_candidate(issue, lease, reader=None, comments=()):
         if reader is not None:
             import derivation
             report = derivation.safe_report(reader, selected['submission']['problem'], pr['user']['login'], f"direct-pr-{pr['number']}",
-                                            lambda: (derivation.pr_files(selected['changed_files'], selected['source_subdir']), s.REPOSITORY))
-            derivation.safe_post(pr['number'], selected['head_sha'], report, 'pull_request', comments)
+                                            lambda: (derivation.pr_files(selected['changed_files'], selected['source_subdir']), s.REPOSITORY),
+                                            defer=selected['gate'] == 'ready')
+            if selected['gate'] == 'ready' or report.get('reason') != 'API budget used':
+                derivation.safe_post(pr['number'], selected['head_sha'], report, 'pull_request', comments)
             selected['derivation'] = report
     except LayoutError as exc:
         selected.update(gate='invalid_layout', reason=str(exc))
@@ -562,7 +569,8 @@ def publish_pr(artifact_override=None, stage="final"):
         disposition, reason = 'close', str(exc)
     except ValueError as exc:
         disposition, reason = 'keep_open', str(exc)
-    if disposition == 'merge' and not recovering_merge and s.derivation_hold(request):
+    held = disposition == 'merge' and not recovering_merge and s.derivation_hold(request)
+    if held:
         # A maintainer who accepts the credit merges by hand; the site then lists the proof (data/direct_pr.py).
         disposition, reason = 'keep_open', s.HOLD_TEXT.format(item='PR').removesuffix('.')
     if recovering_merge and disposition == 'close':
@@ -632,6 +640,8 @@ def publish_pr(artifact_override=None, stage="final"):
             envelope.update(disposition='keep_open', reason='A newer commit has its own check; close skipped', importable=False)
         elif current['state'] == 'open':
             api(f'pulls/{number}', {'state': 'closed'}, method='PATCH')
+    elif held:
+        hold_ping(number, 'pull_request', request['submission_sha256'], request['head_sha'], request['derivation'])
     elif disposition == 'keep_open' and not recovering_merge and not superseded:
         label_review(number, f'{run_id} {attempt}')
     Path('published').mkdir(exist_ok=True)
@@ -653,10 +663,7 @@ def publish_final_comment(number, marker, body):
     raise ValueError('Final comment lookup exceeds bounded scan; review required')
 
 
-def label_review(number, run_key):
-    """Label the PR and ping the maintainer once per verify run attempt (run_key is
-    '<run id> <attempt>'). Every publisher watcher of a run can reach this; on 2026-10-21
-    three watchers each posted the ping on PR #29."""
+def add_review_label(number):
     label = 'verification-needs-review'
     try:
         api('labels', {'name': label, 'color': 'd4c5f9', 'description': 'Proof check needs maintainer review'})
@@ -664,6 +671,39 @@ def label_review(number, run_key):
         if exc.code != 422:
             raise
     api(f'issues/{number}/labels', {'labels': [label]})
+
+
+HOLD_MARKER = '<!-- bos-derivation-hold-v1 '
+
+
+def hold_ping(number, route, digest, version, report):
+    """A derivation hold of a passing result: the review label and one maintainer ping per version. The
+    ping names the earlier submission (for the credit note) and the exact entry that releases the hold
+    (submissions.release). Its marker binds the submission digest to the held head or issue body."""
+    if not re.fullmatch('[0-9a-f]{64}', digest) or not re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', version):
+        raise ValueError('Invalid hold identity')
+    add_review_label(number)
+    kind = 'pr' if route == 'pull_request' else 'issue'
+    closest = (report or {}).get('closest') or {}
+    key, url = str(closest.get('key')), str(closest.get('url'))
+    earlier = (f'[{key}]({url})' if re.fullmatch(r'direct-(issue|pr)-[1-9][0-9]*', key)
+               and re.fullmatch(r'https://github\.com/bigospeedrun/verifier/(issues|pull)/[1-9][0-9]*', url) else 'an earlier submission')
+    entry = s.canonical({'id': f'direct-{kind}-{number}', 'submission_sha256': digest, 'decision': 'approved',
+                         'by': 'BOS Lead Dev', 'at': 'YYYY-MM-DDTHH:MM:SSZ', 'note': 'credit note text'})
+    action = 'merges this PR' if kind == 'pr' else 'closes this issue'
+    marker = f'{HOLD_MARKER}{number} {digest} {version} -->'
+    s.comment_once(number, marker + f'\n@nmamano Held for review. The proof checks passed, and this version changes only numeric '
+                   f'constants of {earlier}, a verified submission of another author. To release it, add this entry to '
+                   f'`derivations` in bigospeedrun/site data/review-decisions.json:\n\n```json\n{entry}\n```\n\nThe next verifier '
+                   f'scan then {action}, and the next site refresh lists it as Lean Verified. To reject it, close this '
+                   f'{"PR" if kind == "pr" else "issue"}.', api, key=marker)
+
+
+def label_review(number, run_key):
+    """Label the PR and ping the maintainer once per verify run attempt (run_key is
+    '<run id> <attempt>'). Every publisher watcher of a run can reach this; on 2026-10-21
+    three watchers each posted the ping on PR #29."""
+    add_review_label(number)
     marker = f'<!-- bos-review-ping {number} {run_key} -->'
     s.comment_once(number, marker + '\n@nmamano This submission stays open because verification or publication needs review.', api, key=marker)
 
