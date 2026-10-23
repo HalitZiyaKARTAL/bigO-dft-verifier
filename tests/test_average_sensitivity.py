@@ -107,6 +107,11 @@ class OtherRecordTests(unittest.TestCase):
 
 
 class ClosedTests(unittest.TestCase):
+    # Average sensitivity opened on 2026-10-23; CLOSED keeps working for the next problem.
+    def setUp(self):
+        closed = patch.object(s, 'CLOSED', {'average-sensitivity'})
+        closed.start(); self.addCleanup(closed.stop)
+
     def test_a_closed_problem_is_not_selected(self):
         import queue_lease
         import derivation
@@ -137,6 +142,28 @@ class ClosedTests(unittest.TestCase):
             s.acknowledge()
         self.assertEqual(len(posts), 1)
         self.assertIn('not open yet', posts[0]['body'])
+
+
+class OpenTests(unittest.TestCase):
+    def test_an_open_problem_is_selected_against_the_row_gate(self):
+        import queue_lease
+        import derivation
+        lease = Mock(state={'page': 1, 'offset': 0}, admitted=Mock(return_value=False))
+        gate = {'schema_version': 1, 'score': '8', 'score_relation': 'attained', 'leader_ids': ['baseline'],
+                'any_lean_verified_at_bound': False, 'problem_id': 'other/average-sensitivity'}
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path.cwd(); os.chdir(tmp)
+            try:
+                with patch.dict(os.environ, GITHUB_OUTPUT=str(Path(tmp) / 'output')), patch.object(queue_lease, 'acquire', return_value=lease), \
+                     patch.object(s, 'api', side_effect=lambda p, data=None: [issue()] if p.startswith('issues?') else []), \
+                     patch.object(s, 'acknowledge'), patch.object(s, 'release'), patch.object(s, 'current_record', return_value=gate), \
+                     patch.object(derivation.Reader, 'get', side_effect=derivation.NotComputed('offline')):
+                    s.select()
+                request = json.loads(Path('requests/60.json').read_text())
+                self.assertEqual((request['submission']['problem'], request['record_gate']['score']), ('average-sensitivity', '8'))
+                self.assertEqual(request['inputs']['challenge_file'], 'challenges/average-sensitivity/VerifierStatement.lean')
+            finally:
+                os.chdir(old)
 
 
 class SmokeTests(unittest.TestCase):

@@ -70,8 +70,9 @@ MODEL_IDS = {'dft': 'exact-dft/uniform-exact-arithmetic', '3sum': '3sum/word-ram
 # Other bounds rows with a trusted statement: the record gate reads the row, not a board file.
 OTHER = {'average-sensitivity'}
 # A profile whose proof route is not open yet: selection skips it, and only the maintainer smoke runs
-# it (smoke.py). Opening is a reviewed change that removes the problem from this set.
-CLOSED = {'average-sensitivity'}
+# it (smoke.py). Opening is a reviewed change that removes the problem from this set. Average
+# sensitivity opened on 2026-10-23 after its smoke (run 39943626205, issue #48) passed.
+CLOSED = set()
 
 
 def parse_body(body):

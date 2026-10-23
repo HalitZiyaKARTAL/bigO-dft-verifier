@@ -23,10 +23,13 @@ Choose either route. Both use the same statement, record gate, and proof checks.
 
 See [the problem guide](docs/targets.md) for the exact target and Lean version.
 
-Use `dft`, `3sum`, or `apsp` for `problem`. Use an exact nonnegative rational
-for `bound`. For DFT, the bound is the saving s in O(n (log n)^(1-s)); a larger
-saving is better. For 3SUM and APSP, it is the exponent r in O(n^r); smaller
-is better. The ranges are 0 ≤ s ≤ 1, 0 ≤ r ≤ 2 for 3SUM, and 0 ≤ r ≤ 3 for APSP.
+Use `dft`, `3sum`, `apsp` or `average-sensitivity` for `problem`. Use an exact
+nonnegative rational for `bound`. For DFT, the bound is the saving s in
+O(n (log n)^(1-s)); a larger saving is better. For 3SUM and APSP, it is the
+exponent r in O(n^r); smaller is better. For average sensitivity (an Other bounds
+row), it is the coefficient C in AS(f) ≤ C d √n; smaller is better, and only the
+issue route takes it. The ranges are 0 ≤ s ≤ 1, 0 ≤ r ≤ 2 for 3SUM, 0 ≤ r ≤ 3 for
+APSP, and 0 ≤ C ≤ 8 for average sensitivity.
 
 The verifier runs up to nine public submissions and one maintainer test in parallel,
 with one queued public run per GitHub account. A run starts only if the bound matches or beats the best Lean Verified result on that board (a Claimed result does not block it);

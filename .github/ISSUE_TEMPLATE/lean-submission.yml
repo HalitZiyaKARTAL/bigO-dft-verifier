@@ -6,7 +6,7 @@ body:
     id: problem
     attributes:
       label: Problem
-      options: [dft, 3sum, apsp]
+      options: [dft, 3sum, apsp, average-sensitivity]
     validations:
       required: true
   - type: input

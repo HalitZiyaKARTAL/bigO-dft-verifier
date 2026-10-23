@@ -48,5 +48,20 @@ The historical `dft233` entry point is retained only for local receipt tests
 and the existing manual verifier. The public issue form always uses
 `Race.bound`. It accepts no entry-point, dependency, or toolchain override.
 
+For average sensitivity (issue route only), use Lean `leanprover/lean4:v4.33.1` and
+the Mathlib pin in `profiles/anthropic-lake-manifest.json`. The trusted statement is
+`challenges/average-sensitivity/VerifierStatement.lean`: OpenAI's unchanged
+`Model.lean` followed by `Statement.lean`. Keep those definitions unchanged in your
+sources (namespaces `OAI.LeanBlast.GotsmanLinial` and `BigOSpeedrun.AverageSensitivity`),
+and for a coefficient `p/q` export:
+
+```lean
+theorem Race.bound : BigOSpeedrun.AverageSensitivity.Bound ((p : ℚ) / q) := by
+  -- Supply the proof.
+```
+
+`Bound C` states AS(sign p) ≤ C d √n for every real polynomial p of total degree at
+most d in n variables, 1 ≤ d ≤ n, with sign(0) = 1. A smaller C is better.
+
 Integer multiplication and Subset Sum have no trusted statement in this gate.
 SSSP is outside the site submission scope.
