@@ -678,7 +678,7 @@ def publish_final_comment(number, marker, body):
 
 
 def add_review_label(number):
-    label = 'verification-needs-review'
+    label = s.REVIEW_LABEL
     try:
         api('labels', {'name': label, 'color': 'd4c5f9', 'description': 'Proof check needs maintainer review'})
     except urllib.error.HTTPError as exc:

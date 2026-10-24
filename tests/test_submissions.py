@@ -486,7 +486,7 @@ class ReleaseTests(unittest.TestCase):
     def test_an_approval_merges_a_held_pr_at_its_held_head_only(self):
         pr_item = {'number': 7, 'state': 'open', 'pull_request': {}}
         calls = self.run_release(pr_item, [self.ping('a' * 40)])
-        self.assertEqual(calls, [('PUT', 'pulls/7/merge', {'sha': 'a' * 40, 'merge_method': 'squash'})])
+        self.assertEqual(calls, [('PUT', 'pulls/7/merge', {'sha': 'a' * 40, 'merge_method': 'squash'}), ('DELETE', 'issues/7/labels/verification-needs-review', None)])
         self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40)], head='b' * 40), [])  # The head moved.
         self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40, login='attacker')]), [])  # Not the bot's ping.
         self.assertEqual(self.run_release(pr_item, [self.ping('a' * 40, digest='e' * 64)]), [])  # Another version's digest.
@@ -496,11 +496,38 @@ class ReleaseTests(unittest.TestCase):
     def test_an_approval_closes_a_held_issue_with_the_same_body(self):
         item = issue(7)
         calls = self.run_release(item, [self.ping(s.body_hash(item['body']))])
-        self.assertEqual([c[:2] for c in calls], [(None, 'issues/7/comments'), ('PATCH', 'issues/7')])
+        self.assertEqual([c[:2] for c in calls], [(None, 'issues/7/comments'), ('PATCH', 'issues/7'), ('DELETE', 'issues/7/labels/verification-needs-review')])
         self.assertEqual(calls[1][2], {'state': 'closed', 'state_reason': 'completed'})
         self.assertEqual(self.run_release(item, [self.ping('f' * 64)]), [])  # The body was edited after the hold.
         # Two held versions of the same submission: the current body matches the second ping.
-        self.assertEqual(len(self.run_release(item, [self.ping('f' * 64), self.ping(s.body_hash(item['body']))])), 2)
+        self.assertEqual(len(self.run_release(item, [self.ping('f' * 64), self.ping(s.body_hash(item['body']))])), 3)
+
+    def test_a_released_item_that_is_closed_loses_the_review_label_only(self):
+        # Issue #56 (2026-10-24): released and closed, but verification-needs-review stayed.
+        label = [{'name': 'verification-needs-review'}]
+        delete = [('DELETE', 'issues/7/labels/verification-needs-review', None)]
+        closed = dict(issue(7), state='closed', state_reason='completed', labels=label)
+        self.assertEqual(self.run_release(closed, []), delete)
+        self.assertEqual(self.run_release(dict(closed, labels=[]), []), [])  # Already gone: no call.
+        self.assertEqual(self.run_release(dict(closed, state_reason='not_planned'), []), [])  # Not a release.
+        merged = {'number': 7, 'state': 'closed', 'pull_request': {'merged_at': '2026-10-24T00:00:00Z'}, 'labels': label}
+        self.assertEqual(self.run_release(merged, []), delete)
+        self.assertEqual(self.run_release(dict(merged, pull_request={'merged_at': None}), []), [])  # Closed unmerged.
+
+    def test_a_label_already_removed_is_not_an_error(self):
+        import pr_submissions as pr, urllib.error
+        item = issue(7)
+        decisions = {'derivations': [{'id': 'direct-issue-7', 'submission_sha256': self.DIGEST, 'decision': 'approved'}]}
+        def api(path, data=None, method=None):
+            if method == 'DELETE':
+                raise urllib.error.HTTPError(path, 404, 'Label does not exist', {}, None)
+            if data is not None or method: return {}
+            if path == 'issues/7': return item
+            return [self.ping(s.body_hash(item['body']))]
+        with patch.object(s, 'api', side_effect=api), patch.object(pr, 'site_file', return_value=json.dumps(decisions).encode()), \
+             patch('builtins.print') as printed:
+            s.release()
+        printed.assert_not_called()
 
     def test_a_scan_out_of_budget_defers_a_qualifying_issue_without_reserving_it(self):
         import queue_lease

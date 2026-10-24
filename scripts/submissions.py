@@ -536,6 +536,16 @@ def acknowledge():
 
 RELEASE_CALLS = 40
 RELEASE_ENTRIES = 20
+REVIEW_LABEL = 'verification-needs-review'  # pr_submissions.add_review_label sets it on a hold
+
+
+def remove_review_label(number, call):
+    """A released hold no longer waits for review (Lead, 2026-10-24): remove its label. Already gone is fine."""
+    try:
+        call(f'issues/{number}/labels/{REVIEW_LABEL}', method='DELETE')
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
 
 
 def release():
@@ -564,7 +574,13 @@ def release():
         number = int(match[2])
         try:
             item = call(f'issues/{number}')
-            if item.get('state') != 'open' or ('pull_request' in item) != (match[1] == 'pr'):
+            if ('pull_request' in item) != (match[1] == 'pr'):
+                continue
+            if item.get('state') != 'open':
+                # A released item that still has the review label (a failed removal, or #56 before 2026-10-24).
+                done = (item.get('pull_request') or {}).get('merged_at') if match[1] == 'pr' else item.get('state_reason') == 'completed'
+                if done and REVIEW_LABEL in [label.get('name') for label in item.get('labels') or []]:
+                    remove_review_label(number, call)
                 continue
             prefix = f'{pr.HOLD_MARKER}{number} {digest} '
             # Every held version of this digest (an issue body edit that keeps the submission posts a second ping).
@@ -585,12 +601,14 @@ def release():
                     continue
                 # GitHub compares the head atomically; a moved head declines the merge.
                 call(f'pulls/{number}/merge', {'sha': version, 'merge_method': 'squash'}, 'PUT')
+                remove_review_label(number, call)
             else:
                 if body_hash(item.get('body') or '') not in versions:
                     continue
                 marker = f'<!-- bos-derivation-release-v1 {number} {digest} -->'
                 comment_once(number, marker + '\nA maintainer reviewed the credit and released this result. This issue now closes.', call, key=marker)
                 call(f'issues/{number}', {'state': 'closed', 'state_reason': 'completed'}, 'PATCH')
+                remove_review_label(number, call)
         except AckLimit:
             raise
         except Exception as error:
