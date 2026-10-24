@@ -26,6 +26,12 @@ def kernel_outcome(kernel, code, output, systemd_result='', guard_stop=None):
         return {'status': 'rejected', 'reason': 'nanoda_type_equality_rejection'}
     if kernel == 'lean' and code != 0 and 'Lean default kernel rejects the solution' in output:
         return {'status': 'rejected', 'reason': 'lean_kernel_rejection'}
+    # Comparator refuses a solution whose theorem states something else than the trusted challenge, for example
+    # 37615398/10000000 against the reduced 18807699/5000000 the challenge states (issue #61, 2026-10-24). The status
+    # stays pending_review as before; the reason only lets the result comment say why.
+    mismatch = re.search(r"^uncaught exception: Challenge and solution theorem statement do not match: '([A-Za-z_][A-Za-z0-9_.]{0,99})'$", output, re.M)
+    if kernel == 'lean' and code != 0 and mismatch:
+        return {'status': 'pending_review', 'reason': 'statement_mismatch', 'theorem': mismatch.group(1)}
     return {'status': 'pending_review', 'reason': 'ambiguous_failure' if code else 'missing_acceptance'}
 
 
@@ -59,6 +65,12 @@ def admission(receipt, names):
 
 def compile_error_comment(receipt):
     lean = receipt.get('kernels', {}).get('lean', {})
+    if lean.get('reason') == 'statement_mismatch':
+        # The name was matched by kernel_outcome's pattern; check it again, as the receipt is read back from disk.
+        name = str(lean.get('theorem', ''))
+        name = name if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]{0,99}', name) else 'the theorem'
+        return (f"\n\nThe proof's theorem statement does not match the challenge: `{name}`. The statements are compared as"
+                ' written, so write the bound in the theorem as the same reduced fraction as in this submission.')
     if lean.get('status') != 'rejected' or lean.get('reason') != 'lean_compile_error':
         return ''
     # A diagnostic is untrusted text: one bounded quote, no mentions or markup.

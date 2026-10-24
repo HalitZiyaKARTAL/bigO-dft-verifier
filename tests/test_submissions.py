@@ -140,6 +140,26 @@ class SubmissionTests(unittest.TestCase):
         self.assertNotIn('<b>',comment)
         self.assertIn('Compile error:',comment)
 
+    def test_statement_mismatch_is_named_in_the_result_comment(self):
+        # Issue #61 (2026-10-24): the commit proved Bound (37615398 / 10000000 : ℚ), the challenge states the reduced
+        # 18807699/5000000, and the comment said only "Not verified".
+        log="Build completed successfully (3100 jobs).\nuncaught exception: Challenge and solution theorem statement do not match: 'Race.bound'\n"
+        outcome=kernel_outcome('lean',1,log,'exit-code')
+        self.assertEqual(outcome,{'status':'pending_review','reason':'statement_mismatch','theorem':'Race.bound'})
+        comment=compile_error_comment({'kernels':{'lean':outcome}})
+        self.assertIn("theorem statement does not match the challenge: `Race.bound`",comment)
+        self.assertEqual(comment.count('\n'),2)
+        # Resource evidence still wins, a zero exit is no mismatch, and only the nanoda-free lean kernel reports it.
+        self.assertEqual(kernel_outcome('lean',1,log,'oom-kill')['status'],'incomplete')
+        self.assertEqual(kernel_outcome('lean',0,log)['reason'],'missing_acceptance')
+        self.assertEqual(kernel_outcome('nanoda',1,log)['reason'],'ambiguous_failure')
+        # A name outside the pattern is not quoted.
+        for bad in ["Race.bound`@x","a b",'x'*101]:
+            self.assertEqual(kernel_outcome('lean',1,log.replace('Race.bound',bad))['reason'],'ambiguous_failure')
+        forged={'kernels':{'lean':dict(outcome,theorem='`@nmamano [x](y)')}}
+        self.assertIn('match the challenge: `the theorem`',compile_error_comment(forged))
+        self.assertNotIn('@nmamano',compile_error_comment(forged))
+
     def test_bound_gate(self):
         for problem,current,better,worse in [('dft','1/1000','1/999','1/1001'),('3sum','2499/1250','1999/1000','2'),('apsp','149971/50000','2999/1000','3')]:
             record={'score':current,'score_relation':'attained','any_lean_verified_at_bound':False}
