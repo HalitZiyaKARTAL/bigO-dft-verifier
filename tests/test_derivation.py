@@ -53,6 +53,7 @@ class FakeReader(d.Reader):
         self.blobs[p.blob_sha(raw)] = raw
         self.site_blob = p.blob_sha(raw)
         self.board = json.dumps({'records': [{'id': 'direct-issue-19', 'authors': [{'name': issue_login}]}] if issue_login else []}).encode()
+        self.issue_login = None  # Set by a test to name the issue's submitter when no board row does.
 
     def get(self, repo, path):
         if path in self.fail:
@@ -73,6 +74,8 @@ class FakeReader(d.Reader):
             return self.verifier_tree
         if (repo, path) == ('someone/proof', f'git/trees/{"b" * 40}?recursive=1'):
             return self.issue_tree
+        if path == 'issues/19':
+            return {'user': {'login': self.issue_login}} if self.issue_login else {}
         if path.startswith('git/blobs/'):
             return {'encoding': 'base64', 'content': base64.b64encode(self.blobs[path[10:]]).decode()}
         raise AssertionError((repo, path))
@@ -153,6 +156,22 @@ class DerivationTests(unittest.TestCase):
             return fetch(repo, path)
         reader.fetch = gone
         self.assertEqual((run(reader, constants)['closest']['key'], run(reader, constants)['hold']), ('direct-pr-41', True))
+
+    def test_an_issue_author_comes_from_the_issue_when_no_board_row_names_it_and_a_readme_is_not_code(self):
+        # #54 (2026-10-24): its closest source #49 (Anchen0823) had no board row, and a changed README hid the
+        # constants-only change.
+        files = dict(EARLIER, **{'README.md': 'Authors: Halit\n'}, **{f'Submission/L{i}.lean': f'theorem l{i} : {i} = {i} := rfl\n' for i in range(5)})
+        constants = dict(files, **{'Submission.lean': EARLIER['Submission.lean'].replace('30103', '30201'),
+                                   'README.md': 'Authors: Halit\nThanks: a lowered constant\n'})
+        for owner, held in [('other', True), ('ptweezy', None)]:
+            reader = FakeReader({}, issue_files=files, issue_login=None)
+            reader.issue_login = owner
+            report = run(reader, constants)
+            if held is None:
+                self.assertEqual(report['status'], 'no_match')  # The candidate's own issue is skipped.
+                continue
+            self.assertEqual((report['closest']['author_known'], report['constants_only'], report['hold']), (True, True, True))
+            self.assertEqual((report['credit_lines']['kept'] >= 1, report['credit_lines']['new']), (True, 1))
 
     def test_failures_and_caps_never_hold(self):
         constants = copy(**{'Submission.lean': EARLIER['Submission.lean'].replace('30103', '30201')})

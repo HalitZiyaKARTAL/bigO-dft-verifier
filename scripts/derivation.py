@@ -210,7 +210,18 @@ def corpus(reader, problem):
             except urllib.error.HTTPError as error:
                 error.close()
                 continue
-            found.append((key, f'https://github.com/{s.REPOSITORY}/issues/{match[2]}', ('login', authors.get(key)), files, repo))
+            author = authors.get(key)
+            if author is None:
+                # No board row names the submitter (an Other bounds row has no board file): the issue does
+                # (#54, 2026-10-24: its closest source #49 had an unknown author, so it could not hold).
+                try:
+                    login = (reader.get(s.REPOSITORY, f'issues/{match[2]}').get('user') or {}).get('login')
+                except NotComputed:
+                    raise
+                except Exception:
+                    login = None  # An unreadable issue leaves the author unknown: reported, never held.
+                author = login.lower() if isinstance(login, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}', login) else None
+            found.append((key, f'https://github.com/{s.REPOSITORY}/issues/{match[2]}', ('login', author), files, repo))
     return found
 
 
@@ -285,7 +296,9 @@ def compute(reader, problem, login, self_key, cand, cand_repo):
     for c, p in changed:
         tokens_c, credit_c = credit_lines(c, reader.blob(cand_repo, cand[c][0]))
         tokens_p, credit_p = credit_lines(p, reader.blob(pred_repo, pred[p][0]))
-        if tokens_c is None or tokens_p is None or tokens_c != tokens_p:
+        # A README, NOTICE or other credit file counts for the credit lines only; only Lean code decides
+        # constants-only (#54: a changed README made a constants-only change of #49 look like new code).
+        if (tokens_c is None) != (tokens_p is None) or (tokens_c is not None and tokens_c != tokens_p):
             same_code = False
         remaining = list(credit_c)
         before += len(credit_p)
