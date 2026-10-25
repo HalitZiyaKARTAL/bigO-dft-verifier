@@ -410,16 +410,32 @@ def qualifies_for_run(submission, record):
     return candidate > current if submission['problem'] == 'dft' else candidate < current
 
 
+# The race page of each problem on bigospeedrun.com (Lead, 2026-10-25, BOS Growth: GitHub visitors rarely reach the
+# site). A final result names it in one line; the site routes are /<slug> for Big O boards, /other/<slug> otherwise.
+BOARDS = {'dft': ('Exact discrete Fourier transform', 'exact-dft'), '3sum': ('3SUM', '3sum'),
+          'apsp': ('All-pairs shortest paths', 'apsp'), 'average-sensitivity': ('Average sensitivity', 'other/average-sensitivity')}
+
+
+def board_line(problem):
+    """One neutral line that links the race page of a problem, the same for every outcome (Lead, 2026-10-25: a
+    listing claim would be false until the next site refresh); '' for an unknown problem."""
+    if problem not in BOARDS:
+        return ''
+    name, path = BOARDS[problem]
+    return f'{name} board: https://bigospeedrun.com/{path}'
+
+
 CLAIMED_TEXT = ('This submission is listed as Claimed; the bound does not qualify for a proof run. A run starts only for a '
                 'bound that matches or beats the best Lean Verified result on its board, and that bar only gets higher, so '
                 'this {item} now closes. It stays listed as Claimed. To submit a better bound, open a new {item}.')
 
 
-def close_claimed(number, digest, item):
+def close_claimed(number, digest, item, problem=None):
     """One claimed-only report for this submission version, then close it as not planned: it would never run
     later, and the site keeps it listed as Claimed by this report's marker (Lead, 2026-10-23, after PR #52)."""
     marker = f'<!-- bos-claimed-v1 {number} {digest} -->'
-    comment_once(number, marker + '\n' + CLAIMED_TEXT.format(item=item), key=marker)
+    line = board_line(problem)
+    comment_once(number, marker + '\n' + CLAIMED_TEXT.format(item=item) + ('\n\n' + line if line else ''), key=marker)
     api(f'issues/{number}', {'state': 'closed', 'state_reason': 'not_planned'}, method='PATCH')
 
 
@@ -606,7 +622,12 @@ def release():
                 if body_hash(item.get('body') or '') not in versions:
                     continue
                 marker = f'<!-- bos-derivation-release-v1 {number} {digest} -->'
-                comment_once(number, marker + '\nA maintainer reviewed the credit and released this result. This issue now closes.', call, key=marker)
+                try:
+                    line = board_line(parse_body(item.get('body') or '')['problem'])
+                except ValueError:
+                    line = ''
+                comment_once(number, marker + '\nA maintainer reviewed the credit and released this result. This issue now closes.'
+                             + ('\n\n' + line if line else ''), call, key=marker)
                 call(f'issues/{number}', {'state': 'closed', 'state_reason': 'completed'}, 'PATCH')
                 remove_review_label(number, call)
         except AckLimit:
@@ -691,7 +712,7 @@ def select_bounded():
                         # The report and the close; also the close alone when an earlier close failed after
                         # its report (the issue is open here, so it is still not closed).
                         if not any(is_bot(c) and c.get('body', '').startswith(marker) for c in comments):
-                            close_claimed(issue['number'], digest, 'issue')
+                            close_claimed(issue['number'], digest, 'issue', submission['problem'])
                         else:
                             api(f"issues/{issue['number']}", {'state': 'closed', 'state_reason': 'not_planned'}, method='PATCH')
                         continue
@@ -881,6 +902,10 @@ def report():
         elif result['status'] == 'blocked' or rejected:
             close = 'not_planned'
             body += '\n\nTo submit a corrected proof, open a new issue. This issue now closes.'
+    if not stale and not result['test_only']:
+        line = board_line(selected['submission']['problem'])
+        if line:
+            body += '\n\n' + line
     # Content is generated solely from bounded fields. Never post proof logs.
     payload = {'issue_number': selected['issue_number'], 'body': body}
     if close:

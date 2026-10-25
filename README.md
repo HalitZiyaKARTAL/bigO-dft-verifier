@@ -2,7 +2,7 @@
 
 Submit a Lean proof of a bound for Fourier transform, 3SUM, or APSP.
 The verifier checks the proof against our fixed statement on GitHub Actions.
-A passing submission appears as **Lean Verified** on bigospeedrun.com.
+A passing submission appears as **Lean Verified** on [bigospeedrun.com](https://bigospeedrun.com).
 An open submission without a passing check appears as **Claimed**.
 
 ## Submit

@@ -236,6 +236,15 @@ class PRTests(unittest.TestCase):
         merge=[c for c in calls if c[0].endswith('/merge')][0]
         self.assertEqual(merge[1]['sha'],'a'*40);self.assertEqual(merge[2],'PUT')
 
+    def test_a_final_pr_result_links_its_board(self):
+        # Lead, 2026-10-25: a final result names the race page in one neutral line.
+        def result_comment(**kwargs):
+            _,calls=self.publish_fixture(**kwargs)
+            return [c[1]['body'] for c in calls if c[0]=='issues/7/comments' and '<!-- bos-pr-v2 ' in c[1]['body']][0]
+        self.assertTrue(result_comment().endswith('\n\n3SUM board: https://bigospeedrun.com/3sum'))
+        self.assertTrue(result_comment(rejection=True).endswith('\n\n3SUM board: https://bigospeedrun.com/3sum'))
+        self.assertNotIn('bigospeedrun.com/3sum',result_comment(hold=True))
+
     def test_a_derivation_hold_keeps_a_passing_pr_open_at_both_stages(self):
         for stage in ['lean','final']:
             result,calls=self.publish_fixture(hold=True,stage=stage)

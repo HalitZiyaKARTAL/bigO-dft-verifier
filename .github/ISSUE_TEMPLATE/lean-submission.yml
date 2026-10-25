@@ -2,6 +2,9 @@ name: Lean proof submission
 description: Submit a pinned proof for a bound that matches or beats the current record
 title: '[Lean submission] '
 body:
+  - type: markdown
+    attributes:
+      value: Current records and boards for each problem are on [bigospeedrun.com](https://bigospeedrun.com).
   - type: dropdown
     id: problem
     attributes:

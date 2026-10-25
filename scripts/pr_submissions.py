@@ -599,6 +599,11 @@ def publish_pr(artifact_override=None, stage="final"):
         comment += '\n\nTEST ONLY: this smoke result must never be imported.'
     if disposition == 'close' and receipt and receipt.get('kernels', {}).get('nanoda', {}).get('status') == 'rejected':
         comment += '\n\n@nmamano Nanoda rejected this proof; maintainer review is required.'
+    if disposition in ['merge', 'close', 'claimed_only'] and not request.get('test_only'):
+        # A final result links the race page (Lead, 2026-10-25).
+        line = s.board_line((request.get('submission') or {}).get('problem'))
+        if line:
+            comment += '\n\n' + line
     # Only the bounded, escaped compile diagnostic can be posted from proof output.
     if recovering_merge:
         if disposition not in ['merge', 'blocked', 'keep_open'] or not pr.get('merge_commit_sha'):

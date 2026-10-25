@@ -376,6 +376,23 @@ class SubmissionTests(unittest.TestCase):
         comment,_=self.status_report(rejected,derivation=held)
         self.assertEqual(comment['close'],'not_planned');self.assertNotIn('hold',comment)
 
+    def test_a_result_links_its_board_and_the_release_and_claimed_close_too(self):
+        # Lead, 2026-10-25: each final result names the race page on bigospeedrun.com.
+        dft='https://bigospeedrun.com/exact-dft'
+        self.assertEqual(s.board_line('average-sensitivity'),'Average sensitivity board: https://bigospeedrun.com/other/average-sensitivity')
+        self.assertEqual(s.board_line('nope'),'')
+        comment,_=self.status_report(self.receipt())
+        self.assertTrue(comment['body'].endswith('\n\nExact discrete Fourier transform board: '+dft))
+        rejected=self.receipt();rejected['kernels']['lean']['status']='rejected'
+        comment,_=self.status_report(rejected)
+        self.assertTrue(comment['body'].endswith('\n\nExact discrete Fourier transform board: '+dft))
+        comment,_=self.status_report(self.receipt(),test_only=True)
+        self.assertNotIn(dft,comment['body'])
+        posted=[]
+        with patch.object(s,'comment_once',side_effect=lambda n,b,*a,**k:posted.append(b)),patch.object(s,'api'):
+            s.close_claimed(42,'d'*64,'issue','dft')
+        self.assertTrue(posted[0].endswith('\n\nExact discrete Fourier transform board: '+dft))
+
     def test_genuine_rejection_closes_the_issue_as_not_planned(self):
         receipt=self.receipt();receipt['kernels']['lean']['status']='rejected';receipt['axiom_audit']={'status':'incomplete'}
         comment,calls=self.status_report(receipt)
@@ -518,6 +535,7 @@ class ReleaseTests(unittest.TestCase):
         calls = self.run_release(item, [self.ping(s.body_hash(item['body']))])
         self.assertEqual([c[:2] for c in calls], [(None, 'issues/7/comments'), ('PATCH', 'issues/7'), ('DELETE', 'issues/7/labels/verification-needs-review')])
         self.assertEqual(calls[1][2], {'state': 'closed', 'state_reason': 'completed'})
+        self.assertTrue(calls[0][2]['body'].endswith('\n\nExact discrete Fourier transform board: https://bigospeedrun.com/exact-dft'))
         self.assertEqual(self.run_release(item, [self.ping('f' * 64)]), [])  # The body was edited after the hold.
         # Two held versions of the same submission: the current body matches the second ping.
         self.assertEqual(len(self.run_release(item, [self.ping('f' * 64), self.ping(s.body_hash(item['body']))])), 3)
