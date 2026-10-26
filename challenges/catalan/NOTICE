@@ -1,0 +1,15 @@
+Catalan irrationality-exponent trusted statement proposal
+
+Statement.lean and Validation.lean are written by BigOSpeedrun agents (BOS Integrations,
+using Claude) in 2026, under Apache-2.0 (see LICENSE). They are new text. No file of the
+earlier pull request is copied.
+
+Earlier attempt: pull request bigospeedrun/verifier#21 by GitHub account 1337isnot1337
+(prepared with OpenAI Codex), commit f44a54607356a8a4a2fcfd65e39433d9f102fa1f. It proposed
+the parameterized target, with an exclusion of exact equality. Our statement keeps its
+shape (an `Endpoint` inequality, `UpperBoundFor`, `Bound`) and removes that exclusion.
+The review comment of GitHub account darkhipo on that pull request pointed to the form used here.
+
+The series and the approximation inequality follow Sean Litsey's Challenge.lean,
+https://github.com/slitsey/catalan-irrationality-measure/blob/50672b810873d8371b2b6bdd0057bb6cb2e3da24/Challenge.lean
+No part of that file with `sorry` is imported or copied.
