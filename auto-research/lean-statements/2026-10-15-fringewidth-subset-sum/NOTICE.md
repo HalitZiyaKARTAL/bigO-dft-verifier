@@ -2,7 +2,7 @@
 
 - Model of computation and Theorem 1.1: OpenAI, «Subset Sum in Time
   O(2^0.49n)», 4 October 2026, preprint
-  https://github.com/openai/math/blob/main/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf
+  https://github.com/openai/math/blob/adc7f1241b42e322a6451854ab7e4b4c146bf78a/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf
   (sha256 of the PDF read: d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed).
   The statement's comments quote short phrases of Section 1.1.
 - Shape of the instruction set, execution function and `BigO` encoding:

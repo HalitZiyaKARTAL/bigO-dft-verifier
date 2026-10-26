@@ -20,7 +20,7 @@ describes. No Subset Sum bound is claimed.
 
 The model is Section 1.1 of «Subset Sum in Time O(2^0.49n)» (OpenAI,
 4 October 2026,
-[subset-sum.pdf](https://github.com/openai/math/blob/main/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf)),
+[subset-sum.pdf](https://github.com/openai/math/blob/adc7f1241b42e322a6451854ab7e4b4c146bf78a/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf)),
 which the problem page states. The file imports nothing and proves nothing,
 in the style of the trusted 3SUM and APSP statement.
 

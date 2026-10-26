@@ -11,7 +11,7 @@
     "Claude Fable 5.1 (Claude Code)"
   ],
   "predecessors": [
-    "https://github.com/openai/math/blob/main/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf",
+    "https://github.com/openai/math/blob/adc7f1241b42e322a6451854ab7e4b4c146bf78a/preprints/Subset-Sum-in-Time-2-power-0-49n-October-4-2026/subset-sum.pdf",
     "https://github.com/bigospeedrun/verifier/blob/51489ee2ac82596a41375e92ea8108814f931242/challenges/3sum-apsp/EndStatement.lean",
     "https://github.com/a-kapila/maths-proofs/blob/44c34961b56784c220a6e913cc068d57dc37c5a3/subset-sum/PROOF_0.4877.tex",
     "https://github.com/bigospeedrun/site/tree/000c32d3249b7d7bbde0278ba62cb51a576bfd60"
