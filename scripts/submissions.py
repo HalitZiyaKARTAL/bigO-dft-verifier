@@ -66,13 +66,14 @@ def validate_submission(value):
 
 FORM_FIELDS = ['Problem', 'Repository URL', 'Commit SHA', 'Bound']
 MODEL_IDS = {'dft': 'exact-dft/uniform-exact-arithmetic', '3sum': '3sum/word-ram', 'apsp': 'apsp/word-ram',
-             'average-sensitivity': 'other/average-sensitivity'}
+             'average-sensitivity': 'other/average-sensitivity', 'catalan': 'other/catalan'}
 # Other bounds rows with a trusted statement: the record gate reads the row, not a board file.
-OTHER = {'average-sensitivity'}
+OTHER = {'average-sensitivity', 'catalan'}
 # A profile whose proof route is not open yet: selection skips it, and only the maintainer smoke runs
 # it (smoke.py). Opening is a reviewed change that removes the problem from this set. Average
-# sensitivity opened on 2026-10-23 after its smoke (run 39943626205, issue #48) passed.
-CLOSED = set()
+# sensitivity opened on 2026-10-23 after its smoke (run 39943626205, issue #48) passed. Catalan
+# (2026-10-26) waits for a proof on this profile to smoke with.
+CLOSED = {'catalan'}
 
 
 def parse_body(body):
@@ -140,6 +141,8 @@ theorem Race.bound : ∃ order solve W, DFTProgram order solve W ∧
 '''
     elif submission['problem'] == 'average-sensitivity':
         target = f'theorem Race.bound : BigOSpeedrun.AverageSensitivity.Bound (({n} : ℚ) / {d}) := by\n  sorry\n'
+    elif submission['problem'] == 'catalan':
+        target = f'theorem Race.bound : BigOSpeedrun.Catalan.Bound (({n} : ℚ) / {d}) := by\n  sorry\n'
     else:
         problem = 'ThreeSum' if submission['problem'] == '3sum' else 'APSP'
         target = f'theorem Race.bound : EndStatement.{problem}.SolvedInTime (({n} : Rat) / {d}) := by\n  sorry\n'
@@ -350,7 +353,11 @@ def other_record(problem, issue_url):
         best = min(v for v, _ in verified)
         leaders, any_lean = sorted(str(h) for v, h in verified if v == best), True
     else:
-        best = exact_value(family['baseline'].get('exactValue'))
+        baseline = family['baseline'].get('exactValue')
+        best = exact_value(baseline)
+        if best is None and baseline == '+\\infty':
+            # No finite baseline (Catalan): every bound in the profile's range beats it, so the range's top gates.
+            best = Fraction(json.loads((ROOT / 'profiles/direct.json').read_text())[problem]['maximum'])
         if best is None:
             raise ValueError('No Lean Verified claim or exact baseline; refuse to guess')
         leaders, any_lean = ['baseline'], False
@@ -413,7 +420,8 @@ def qualifies_for_run(submission, record):
 # The race page of each problem on bigospeedrun.com (Lead, 2026-10-25, BOS Growth: GitHub visitors rarely reach the
 # site). A final result names it in one line; the site routes are /<slug> for Big O boards, /other/<slug> otherwise.
 BOARDS = {'dft': ('Exact discrete Fourier transform', 'exact-dft'), '3sum': ('3SUM', '3sum'),
-          'apsp': ('All-pairs shortest paths', 'apsp'), 'average-sensitivity': ('Average sensitivity', 'other/average-sensitivity')}
+          'apsp': ('All-pairs shortest paths', 'apsp'), 'average-sensitivity': ('Average sensitivity', 'other/average-sensitivity'),
+          'catalan': ("Catalan's constant", 'other/catalan')}
 
 
 def board_line(problem):
