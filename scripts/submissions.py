@@ -66,14 +66,15 @@ def validate_submission(value):
 
 FORM_FIELDS = ['Problem', 'Repository URL', 'Commit SHA', 'Bound']
 MODEL_IDS = {'dft': 'exact-dft/uniform-exact-arithmetic', '3sum': '3sum/word-ram', 'apsp': 'apsp/word-ram',
-             'average-sensitivity': 'other/average-sensitivity', 'catalan': 'other/catalan'}
+             'average-sensitivity': 'other/average-sensitivity', 'catalan': 'other/catalan',
+             'subset-sum': 'subset-sum/randomized-word-ram'}
 # Other bounds rows with a trusted statement: the record gate reads the row, not a board file.
 OTHER = {'average-sensitivity', 'catalan'}
 # A profile whose proof route is not open yet: selection skips it, and only the maintainer smoke runs
 # it (smoke.py). Opening is a reviewed change that removes the problem from this set. Average
 # sensitivity opened on 2026-10-23 after its smoke (run 39943626205, issue #48) passed. Catalan
-# (2026-10-26) waits for a proof on this profile to smoke with.
-CLOSED = {'catalan'}
+# (2026-10-26) and Subset Sum (2026-10-27) wait for a proof on their profile to smoke with.
+CLOSED = {'catalan', 'subset-sum'}
 
 
 def parse_body(body):
@@ -143,6 +144,8 @@ theorem Race.bound : ∃ order solve W, DFTProgram order solve W ∧
         target = f'theorem Race.bound : BigOSpeedrun.AverageSensitivity.Bound (({n} : ℚ) / {d}) := by\n  sorry\n'
     elif submission['problem'] == 'catalan':
         target = f'theorem Race.bound : BigOSpeedrun.Catalan.Bound (({n} : ℚ) / {d}) := by\n  sorry\n'
+    elif submission['problem'] == 'subset-sum':
+        target = f'theorem Race.bound : BigOSpeedrun.SubsetSum.SolvedInTime (({n} : Rat) / {d}) := by\n  sorry\n'
     else:
         problem = 'ThreeSum' if submission['problem'] == '3sum' else 'APSP'
         target = f'theorem Race.bound : EndStatement.{problem}.SolvedInTime (({n} : Rat) / {d}) := by\n  sorry\n'
@@ -421,7 +424,7 @@ def qualifies_for_run(submission, record):
 # site). A final result names it in one line; the site routes are /<slug> for Big O boards, /other/<slug> otherwise.
 BOARDS = {'dft': ('Exact discrete Fourier transform', 'exact-dft'), '3sum': ('3SUM', '3sum'),
           'apsp': ('All-pairs shortest paths', 'apsp'), 'average-sensitivity': ('Average sensitivity', 'other/average-sensitivity'),
-          'catalan': ("Catalan's constant", 'other/catalan')}
+          'catalan': ("Catalan's constant", 'other/catalan'), 'subset-sum': ('Subset Sum', 'subset-sum')}
 
 
 def board_line(problem):
