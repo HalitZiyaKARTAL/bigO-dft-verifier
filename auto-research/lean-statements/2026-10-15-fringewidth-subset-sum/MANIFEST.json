@@ -1,15 +1,15 @@
 {
-    "algorithm": "sha256",
-    "sha256": {
-        "NOTICE.md": "6eb59483bb36519e9eafd5b1b5582ce352a83bea701e5fa36bfe3bd3b792d5a4",
-        "README.md": "b245ded5d53f39707601da89219e68110dc91d1da60c1284e94323ade09f25a2",
-        "RESULT.json": "feb10bc8b5b358cf0b2bd2983d8ec7818a0efb0d091d59956768f5638a510fd5",
-        "code/Checks.lean": "81bdbc28eb2bc8f2e08d42d5c357c810d96b9943b5ea557fa2b45d100a1f8e49",
-        "data/challenge-hashes.json": "badfd561693f392d312aac691bf322705768821de22953e36ce0c8973e440fe8",
-        "data/inputs.json": "f81b5a6a6d332495be19ee2b058ddbf186f77e7439c75d2a46eed602bae89d19",
-        "data/subset-sum-record.json": "85378c1befd43ae5a53a745342d74cc597da3ef158782cb54dfe62742bca1bea",
-        "data/tools.json": "be5d118f36d6c5362c084f522a7518247a335322952e8722c2177b2087b9a09d",
-        "evidence/lean-checks.txt": "5e7a20feae9d3735d4947059ca7a756f3dc27426aa634c5ba393bedd575ca411",
-        "verify.py": "01da88a8b28049ec8388d0c29dcb8c5d372fb6eb05b0b23cb9e9975ca7517b88"
-    }
+  "algorithm": "sha256",
+  "sha256": {
+    "NOTICE.md": "d2f24357a4393ae1ddfeb859a49c2baa02256eaada7f4dea53d4aa6b02ad6b1a",
+    "README.md": "f34b3d889fdfd9f41b85b3a43974d61937d9eb914f08041c1b29f4bcff91d358",
+    "RESULT.json": "d24f646e658dd3e37dccca0721b9f1f2089bd9e76a0f18e83ad35fe995b520d2",
+    "code/Checks.lean": "d26264bfeaa8d7f927daf5149ccff3e3f3c6ddb8ede49f96f69326cb1351a031",
+    "data/challenge-hashes.json": "5a7eb5777ebcee56c86bf0c7718cc93285bc303a0975ad72b17af77e4ce3a436",
+    "data/inputs.json": "d377a9f944ec8022c9a39274900027613189a56e435b10ac0a5d5de2264dccfd",
+    "data/subset-sum-record.json": "54be918cb90077760ac9fb9549d7ce2d07164b3739b62f1be2026c088e4cfc19",
+    "data/tools.json": "4e3baa83526180576ff83255ccd78745522d6614a5382f01f343fabc4348477f",
+    "evidence/lean-checks.txt": "aaa394219513b6e05413a54504e02e62c60c506bf89353f2f1ab365d560c3748",
+    "verify.py": "115d22ccf7a24c14dc16373f4c99266ab5d87cb891445eb4ec8d1f0790de3159"
+  }
 }

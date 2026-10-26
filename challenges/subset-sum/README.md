@@ -75,10 +75,15 @@ Decisions a reviewer should check:
 
 ## Toolchain
 
-Lean `leanprover/lean4:v4.33.1`. The statement imports nothing. A submission
-may use the Mathlib pin of the existing 3SUM and APSP profile,
-`profiles/anthropic-lake-manifest.json` (Mathlib
-`0df444a360eaa60ab8c11dca51a86af692955474`), or no dependency at all.
+Lean `leanprover/lean4:v4.34.1`. The statement imports nothing. A submission
+may use the Mathlib pin of the DFT profile, `profiles/lake-manifest.json`
+(Mathlib `d13f23b723b8a846827a245b89c10fc7d3f11612`), or no dependency at all.
+
+The maintainers changed this pin when they merged the proposal (2026-10-27).
+The pull request proposed Lean `v4.33.1` with the 3SUM and APSP profile.
+The Lean library of the paper's repository (openai/math at `adc7f124`) uses
+Lean `v4.34.1` with Mathlib `d13f23b`, so a proof that builds on it needs no
+port. The statement compiles unchanged with both toolchains.
 
 ## Provenance and license
 
