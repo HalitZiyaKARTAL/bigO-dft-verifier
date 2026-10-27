@@ -64,3 +64,4 @@ jobs:
     with:
       issue_number: ${{ matrix.issue_number }}
       route: ${{ matrix.route }}
+      split: ${{ matrix.split == true }}

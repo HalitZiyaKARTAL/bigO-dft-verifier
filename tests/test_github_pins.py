@@ -167,5 +167,39 @@ class SetupPinTests(Base):
         self.assertEqual(sorted(json.loads((self.art / 'tool-sha256.json').read_text())), ['comparator', 'landrun', 'lean', 'lean4export', 'nanoda'])
 
 
+class BuildPinTests(Base):
+    def test_split_build_runs_one_unit_with_the_same_caps(self):
+        launched, runs, labels = [], [], []
+
+        def popen(args, stdout=None, stderr=None, **kwargs):
+            launched.append(args); stdout.write('build output\n'); stdout.flush()
+            return Mock(poll=Mock(return_value=0), wait=Mock(return_value=1))
+
+        def run(args, **kwargs):
+            runs.append(args)
+            return Mock(stdout='exit-code\n', returncode=0)
+
+        with patch.object(v.subprocess, 'Popen', side_effect=popen), patch.object(v.subprocess, 'run', side_effect=run), \
+             patch.object(v, 'command', side_effect=lambda args, label, *a, **k: labels.append(label)), \
+             patch.object(v.time, 'time', return_value=1000.0), patch.object(v.shutil, 'disk_usage', return_value=Mock(free=100 * 1024**3)):
+            v.build()  # A failed Lake build is not fatal.
+        W = str(self.work)
+        self.assertEqual(labels, ['sandbox-preflight'])
+        # No swap; the deadline leaves 15 minutes to pack and upload.
+        self.assertEqual(launched, [['sudo', 'systemd-run', '--wait', '--pipe', '--unit=bos-verifier-build',
+                                     '--uid=' + str(os.getuid()), '--gid=' + str(os.getgid()),
+                                     '--property=RestrictAddressFamilies=~AF_UNIX', '--property=Nice=10',
+                                     '--property=CPUQuota=400%', '--property=MemoryMax=14G', '--property=MemorySwapMax=0',
+                                     '--property=RuntimeMaxSec=18300', '--property=TasksMax=4096',
+                                     *self.sandbox(), '/usr/bin/python3', f'{W}/control/inside.py', W, 'build']])
+        self.assertEqual(runs, [['sudo', 'systemctl', 'show', 'bos-verifier-build', '--property=Result', '--value']])
+        record = v.receipt()['build']
+        self.assertEqual(record, {'exit_code': 1, 'systemd_result': 'exit-code', 'wall_seconds': record['wall_seconds'],
+                                  'sampled_peak_cgroup_bytes': 0, 'memory_limit_bytes': 14 * 1024**3, 'sampled_peak_swap_bytes': 0,
+                                  'swap_limit_bytes': 0, 'sampled_peak_tasks': 0, 'tasks_limit': 4096, 'guard_stop': None,
+                                  'log': 'build.log'})
+        self.assertEqual((self.art / 'build.log').read_text(), 'build output\n')
+
+
 if __name__ == '__main__':
     unittest.main()

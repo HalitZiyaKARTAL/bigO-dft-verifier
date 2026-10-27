@@ -33,6 +33,10 @@ else:
                 if path.is_dir() and not path.is_symlink():
                     raise RuntimeError('unexpected challenge output directory')
                 path.unlink()
-    args = [str(lean), 'env', '/usr/bin/python3', str(work / 'control/inside.py'),
-            str(work), phase + '-exec']
+    if phase == 'build':
+        # Split job 1: one parallel build with the real Lake, not the chain shim.
+        args = [str(lean), 'build', request['profile']['solution_module']]
+    else:
+        args = [str(lean), 'env', '/usr/bin/python3', str(work / 'control/inside.py'),
+                str(work), phase + '-exec']
 os.execve(str(lean), args, dict(os.environ, LEAN_NUM_THREADS='4'))

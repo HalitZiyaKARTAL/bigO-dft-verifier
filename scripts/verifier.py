@@ -8,8 +8,10 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.parse
@@ -173,6 +175,13 @@ def plan_sources(stage, root):
     return chains
 
 
+def chain_targets(profile, chains):
+    # Split profile: job 1 built the solution, so the shim makes one Lake call (docs/execution.md).
+    if profile.get('runner') == 'github-split':
+        return profile['solution_module'] + '\n'
+    return ''.join(chain[-1] + '\n' for chain in chains)
+
+
 def lakefile(roots, manifest_file='profiles/lake-manifest.json'):
     result = '''name = "Verifier"
 version = "0.1.0"
@@ -264,7 +273,7 @@ def prepare():
     write_json(ART / 'source-sha256.json', hashes)
     chains = plan_sources(stage, profile['solution_module'])
     write_json(WORK / 'control/chains.json', chains)
-    (WORK / 'control/chain-targets.txt').write_text(''.join(chain[-1] + '\n' for chain in chains))
+    (WORK / 'control/chain-targets.txt').write_text(chain_targets(profile, chains))
     if 'direct_submission' in request:
         from submissions import challenge_source
         (stage / 'VerifierChallenge.lean').write_text(challenge_source(request['direct_submission']))
@@ -516,6 +525,188 @@ def verify(kernels=None):
     save(data)
 
 
+# Split build (docs/execution.md). Job 1 stops its build in time to pack and upload.
+BUILD_PACK_SECONDS = 15 * 60
+BUILD_ARTIFACT = ROOT / 'build-artifact'
+BUILD_MAX_BYTES = 8 * 1024**3
+BUILD_MAX_MEMBERS = 200_000
+# Folders that hold the allowed paths. They are walked, but they are not members.
+BUILD_PREFIXES = {'lib', 'lib/lean', 'ir'}
+# Roots that would shadow the toolchain's own modules (docs/execution.md, LEAN_PATH order).
+RESERVED_ROOTS = {'Init', 'Std', 'Lean', 'Lake'}
+
+
+def build_roots(profile):
+    roots = list(profile['source_roots']) + [r for dep in profile.get('solution_dependencies', []) for r in dep['source_roots']]
+    for root in roots:
+        if not NAME.fullmatch(root) or '.' in root or root in RESERVED_ROOTS or root.startswith('Verifier'):
+            raise ValueError('source root cannot come from a build artifact')
+    return roots
+
+
+def build_allowed(rel, is_dir, roots):
+    """Rule S1, shared by pack and unpack: only the solution's own build files in .lake/build.
+    rel is a relative path with '/' separators."""
+    try:
+        rel.encode('utf-8')
+    except UnicodeEncodeError:
+        return False
+    parts = rel.split('/')
+    if '\0' in rel or any(x in ['', '.', '..'] for x in parts):
+        return False
+    if parts[:2] == ['lib', 'lean'] and len(parts) > 2:
+        rest = parts[2:]
+    elif parts[0] == 'ir' and len(parts) > 1:
+        rest = parts[1:]
+    else:
+        return False
+    if len(rest) == 1 and not is_dir:
+        return any(rest[0].startswith(root + '.') and len(rest[0]) > len(root) + 1 for root in roots)
+    return rest[0] in roots
+
+
+def build():
+    """Split job 1: one parallel Lake build of the solution in the sandbox. A failed or partial build is
+    not fatal: pack keeps what exists, and job 2 continues or fails as one job would."""
+    sandbox_preflight()
+    deadline = receipt()['started_unix'] + DEADLINE_SECONDS - BUILD_PACK_SECONDS
+    command_args = sandbox_args() + ['/usr/bin/python3', str(WORK / 'control/inside.py'), str(WORK), 'build']
+    code, systemd_result, guard_stop, start, usage = launch_github('build', command_args, deadline)
+    data = receipt()
+    data['build'] = {'exit_code': code, 'systemd_result': systemd_result, 'wall_seconds': round(time.monotonic() - start, 3),
+                     **usage, 'guard_stop': guard_stop, 'log': 'build.log'}
+    save(data)
+    print(f'build: exit {code}, {systemd_result}', flush=True)
+
+
+def pack():
+    """Split job 1, rule S2: trusted code writes a deterministic tar of the allowed build files after the build unit has ended.
+    It never follows a symlink. The sha256 goes to the job output; job 2 checks it."""
+    state = subprocess.run(['systemctl', 'is-active', 'bos-verifier-build'], capture_output=True, text=True, check=False).stdout.strip()
+    if state not in ['inactive', 'failed']:
+        raise RuntimeError('build unit is not stopped: ' + (state or 'unknown'))
+    roots = build_roots(json.loads((WORK / 'control/request.json').read_text())['profile'])
+    BUILD_ARTIFACT.mkdir(exist_ok=True)
+    data = receipt()
+    # Job 1's record and log go to job 2's receipt as data, also when the pack fails below.
+    write_json(BUILD_ARTIFACT / 'build.json', {'build': data.get('build')})
+    if (ART / 'build.log').is_file():
+        shutil.copyfile(ART / 'build.log', BUILD_ARTIFACT / 'build.log')
+    base = WORK / 'stage/.lake/build'
+    if not stat.S_ISDIR(os.lstat(base).st_mode):
+        raise RuntimeError('build folder is not a directory')
+    members, skipped, total = [], [], 0
+    for top, dirs, files in os.walk(base, followlinks=False):
+        prefix = os.path.relpath(top, base)
+        keep = []
+        for name in dirs + files:
+            rel = name if prefix == '.' else prefix + '/' + name
+            st = os.lstat(os.path.join(top, name))
+            is_dir = stat.S_ISDIR(st.st_mode)
+            if is_dir and rel in BUILD_PREFIXES:
+                keep.append(name)
+            elif (is_dir or (stat.S_ISREG(st.st_mode) and st.st_nlink == 1)) and build_allowed(rel, is_dir, roots):
+                members.append((rel, st))
+                total += 0 if is_dir else st.st_size
+                if is_dir:
+                    keep.append(name)
+            else:
+                skipped.append(rel)
+        dirs[:] = [d for d in dirs if d in keep]
+        if len(members) > BUILD_MAX_MEMBERS or total > BUILD_MAX_BYTES:
+            raise RuntimeError('build files exceed the pack caps')
+    with tarfile.open(BUILD_ARTIFACT / 'build.tar', 'w', format=tarfile.PAX_FORMAT) as tar:
+        for rel, st in sorted(members, key=lambda m: m[0]):
+            info = tarfile.TarInfo(rel)
+            info.uid = info.gid = 0
+            info.uname = info.gname = ''
+            # Keep the real mtime to the nanosecond: Lake can compare mtimes.
+            ns = max(0, st.st_mtime_ns)
+            info.mtime = ns // 10**9
+            info.pax_headers = {'mtime': f'{ns // 10**9}.{ns % 10**9:09d}'}
+            if stat.S_ISDIR(st.st_mode):
+                info.type, info.mode = tarfile.DIRTYPE, 0o755
+                tar.addfile(info)
+                continue
+            info.type, info.mode, info.size = tarfile.REGTYPE, 0o644, st.st_size
+            with os.fdopen(os.open(base / rel, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), 'rb') as f:
+                now = os.fstat(f.fileno())
+                if not stat.S_ISREG(now.st_mode) or (now.st_dev, now.st_ino, now.st_size) != (st.st_dev, st.st_ino, st.st_size):
+                    raise RuntimeError('build file changed while packing')
+                tar.addfile(info, f)
+    sha = digest(BUILD_ARTIFACT / 'build.tar')
+    data = receipt()
+    data['pack'] = {'sha256': sha, 'members': len(members), 'files': sum(not stat.S_ISDIR(m[1].st_mode) for m in members),
+                    'bytes': total, 'skipped_count': len(skipped), 'skipped_first': sorted(skipped)[:20]}
+    save(data)
+    write_json(BUILD_ARTIFACT / 'build.json', {'build': data.get('build'), 'pack': data['pack']})
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+            out.write('build_sha256=' + sha + '\n')
+    print(f"pack: {len(members)} members, {total} bytes, {len(skipped)} skipped, sha256 {sha}", flush=True)
+
+
+def unpack():
+    """Split job 2, rule S1: check job 1's tar against BOS_BUILD_SHA256, then restore only the allowed
+    members into the empty build folder. Any other member refuses the whole archive."""
+    data = receipt()
+    record = BUILD_ARTIFACT / 'build.json'
+    if record.is_file() and not record.is_symlink() and record.stat().st_size <= 64 * 1024:
+        job1 = json.loads(record.read_text())
+        data.update({k: job1[k] for k in ['build', 'pack'] if isinstance(job1, dict) and k in job1})
+    # The site accepts at most 128 MB of receipt files; a larger log stays in job 1's artifact only.
+    log = BUILD_ARTIFACT / 'build.log'
+    if log.is_file() and not log.is_symlink() and log.stat().st_size <= 32 * 1024**2:
+        shutil.copyfile(log, ART / 'build.log')
+    save(data)
+    if os.environ.get('BOS_BUILD_RESULT') != 'success':
+        raise RuntimeError('build job did not succeed')
+    expected = os.environ.get('BOS_BUILD_SHA256', '')
+    if not re.fullmatch('[0-9a-f]{64}', expected):
+        raise ValueError('BOS_BUILD_SHA256 must be 64 lowercase hex digits')
+    path = BUILD_ARTIFACT / 'build.tar'
+    if path.is_symlink() or not path.is_file() or digest(path) != expected:
+        raise ValueError('build artifact is missing or its sha256 does not match')
+    roots = build_roots(json.loads((WORK / 'control/request.json').read_text())['profile'])
+    base = WORK / 'stage/.lake/build'
+    if not stat.S_ISDIR(os.lstat(base).st_mode) or os.listdir(base):
+        raise RuntimeError('build folder is not the empty folder from prepare')
+    with tarfile.open(path, 'r:') as tar:
+        checked, names, total = [], set(), 0
+        for m in tar:
+            mtime = re.fullmatch(r'([0-9]{1,12})\.([0-9]{9})', m.pax_headers.get('mtime', ''))
+            if (m.type not in [tarfile.REGTYPE, tarfile.DIRTYPE] or set(m.pax_headers) - {'mtime', 'path'} or not mtime
+                    or m.name in names or not build_allowed(m.name, m.isdir(), roots) or (m.isdir() and m.size)):
+                raise ValueError('build artifact has a member outside the allow-list')
+            names.add(m.name)
+            total += m.size
+            checked.append((m, int(mtime[1]) * 10**9 + int(mtime[2])))
+            if len(checked) > BUILD_MAX_MEMBERS or total > BUILD_MAX_BYTES:
+                raise ValueError('build artifact exceeds the pack caps')
+        for prefix in sorted(BUILD_PREFIXES):
+            os.mkdir(base / prefix, 0o755)
+        dirs = []
+        for m, ns in checked:
+            if m.isdir():
+                os.mkdir(base / m.name, 0o755); os.chmod(base / m.name, 0o755)
+                dirs.append((base / m.name, ns))
+                continue
+            fd = os.open(base / m.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+            with os.fdopen(fd, 'wb') as out, tar.extractfile(m) as src:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+                out.flush(); os.fchmod(fd, 0o644); os.utime(fd, ns=(ns, ns))
+        for folder, ns in reversed(dirs):
+            os.utime(folder, ns=(ns, ns), follow_symlinks=False)
+    path.unlink()  # Disk space for the checks and the nanoda swap.
+    data = receipt()
+    data['unpack'] = {'sha256': expected, 'members': len(checked), 'files': sum(not m.isdir() for m, _ in checked), 'bytes': total}
+    save(data)
+    # Record the LEAN_PATH that Lake gives Comparator. Trusted: our Lake config only, no submission code.
+    command(sandbox_args() + [str(toolchain_dir() / 'bin/lake'), 'env', 'printenv', 'LEAN_PATH'], 'lean-path')
+    lines = (ART / 'lean-path.log').read_text(errors='replace').split()
+    data = receipt(); data['lean_path'] = lines[-1].split(':') if lines else []; save(data)
+
+
 def verify_lean():
     verify(['lean', 'audit'])
     data = receipt()
@@ -567,7 +758,7 @@ def finalize():
 
 
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument('phase', choices=['prepare', 'setup', 'verify', 'verify_lean', 'verify_nanoda', 'finalize'])
+    parser = argparse.ArgumentParser(); parser.add_argument('phase', choices=['prepare', 'setup', 'build', 'pack', 'verify', 'unpack', 'verify_lean', 'verify_nanoda', 'finalize'])
     phase = parser.parse_args().phase
     try:
         globals()[phase]()

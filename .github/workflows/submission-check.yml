@@ -8,10 +8,65 @@ on:
       route:
         required: true
         type: string
+      split:
+        required: false
+        type: boolean
+        default: false
 permissions: {}
 jobs:
+  build:
+    # Split profile, job 1: one parallel build, then a trusted tar of the allowed files (docs/execution.md).
+    if: inputs.split && inputs.route == 'issue'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      issues: read
+    env:
+      BOS_REQUEST_PATH: request/request.json
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      build_sha256: ${{ steps.pack.outputs.build_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: direct-requests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: requests
+      - run: python3 scripts/submissions.py materialize
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/submissions.py preflight
+      - if: steps.gate.outputs.proceed == 'true'
+        run: python3 -m unittest discover -s tests -v
+      - id: prepare
+        if: steps.gate.outputs.proceed == 'true'
+        run: python3 scripts/verifier.py prepare
+      - if: steps.gate.outputs.proceed == 'true'
+        timeout-minutes: 45
+        run: python3 scripts/verifier.py setup
+      - if: steps.gate.outputs.proceed == 'true'
+        run: python3 scripts/verifier.py build
+      # Also after a failed build step: pack keeps what exists. Never upload the raw folder.
+      - id: pack
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: python3 scripts/verifier.py pack
+      - if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verifier-build-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.issue_number }}
+          path: build-artifact/
+          if-no-files-found: error
+          retention-days: 1
   verify:
-    if: inputs.route == 'issue'
+    needs: build
+    # build is skipped when not split. A status function lets this job run then; unpack refuses a failed build.
+    if: ${{ !cancelled() && inputs.route == 'issue' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     permissions:
@@ -41,6 +96,16 @@ jobs:
       - if: steps.gate.outputs.proceed == 'true'
         timeout-minutes: 45
         run: python3 scripts/verifier.py setup
+      - if: inputs.split && steps.gate.outputs.proceed == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: verifier-build-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.issue_number }}
+          path: build-artifact
+      - if: inputs.split && steps.gate.outputs.proceed == 'true'
+        env:
+          BOS_BUILD_RESULT: ${{ needs.build.result }}
+          BOS_BUILD_SHA256: ${{ needs.build.outputs.build_sha256 }}
+        run: python3 scripts/verifier.py unpack
       - if: steps.gate.outputs.proceed == 'true'
         run: python3 scripts/verifier.py verify_lean
       - if: always()
