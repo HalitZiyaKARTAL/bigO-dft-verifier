@@ -22,6 +22,8 @@ WORK = Path(os.environ.get('RUNNER_TEMP', str(ROOT / '.work'))) / 'bos-verifier'
 NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\Z')
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 AXIOMS = ['propext', 'Quot.sound', 'Classical.choice']
+# Total check deadline from prepare, in each job.
+DEADLINE_SECONDS = 320 * 60
 
 
 def write_json(path, value):
@@ -411,7 +413,7 @@ def prepare_nanoda_swap():
     command(['sudo', 'swapon', swap], 'nanoda-swap-enable')
 
 
-def verify(kernels=None):
+def sandbox_preflight():
     # Probe real namespace separation and read-only mounts before loading submission code.
     probe = '''import os, pathlib, sys
 assert os.readlink('/proc/self/ns/net') != sys.argv[1]
@@ -433,8 +435,50 @@ print('Network/process namespaces, credential visibility, and read-only mounts p
             os.readlink('/proc/self/ns/net'), os.readlink('/proc/self/ns/pid'),
             str(ROOT / '.git/config'), str(WORK / 'stage/lakefile.toml'),
             str(WORK / 'stage/.lake/packages/mathlib/lean-toolchain')], 'sandbox-preflight')
+
+
+def launch_github(kernel, command_args, deadline):
+    """One systemd-run unit per stage with its own caps; returns exit code, unit result, guard stop, start, usage."""
+    if kernel == 'nanoda':
+        prepare_nanoda_swap()
+    swap_limit = 16 * 1024**3 if kernel == 'nanoda' else 0
+    unit = 'bos-verifier-' + kernel
+    remaining = max(1, int(deadline - time.time()))
+    args = ['sudo', 'systemd-run', '--wait', '--pipe', '--unit=' + unit,
+            '--uid=' + str(os.getuid()), '--gid=' + str(os.getgid()),
+            '--property=RestrictAddressFamilies=~AF_UNIX', '--property=Nice=10',
+            '--property=CPUQuota=400%', '--property=MemoryMax=14G', '--property=MemorySwapMax=' + str(swap_limit),
+            '--property=RuntimeMaxSec=' + str(remaining), '--property=TasksMax=' + str(TASKS_MAX), *command_args]
+    print(f'{kernel}: isolated check started', flush=True)
+    start, peak, swap_peak, tasks_peak, guard_stop = time.monotonic(), 0, 0, 0, None
+    with (ART / f'{kernel}.log').open('w') as log:
+        proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
+        while proc.poll() is None:
+            memory = Path('/sys/fs/cgroup/system.slice') / (unit + '.service') / 'memory.peak'
+            try: peak = max(peak, int(memory.read_text()))
+            except (FileNotFoundError, ValueError): pass
+            try: swap_peak = max(swap_peak, int(memory.with_name('memory.swap.current').read_text()))
+            except (FileNotFoundError, ValueError): pass
+            for name in ['pids.peak', 'pids.current']:
+                try: tasks_peak = max(tasks_peak, int(memory.with_name(name).read_text()))
+                except (FileNotFoundError, ValueError): pass
+            if shutil.disk_usage(WORK).free < 1024**3:
+                guard_stop = 'disk space below 1 GiB'
+                subprocess.run(['sudo', 'systemctl', 'stop', unit], check=False, stdout=log, stderr=log)
+            time.sleep(1)
+        code = proc.wait()
+    systemd_result = subprocess.run(['sudo', 'systemctl', 'show', unit, '--property=Result', '--value'],
+                                     capture_output=True, text=True, check=False).stdout.strip()
+    usage = {'sampled_peak_cgroup_bytes': peak, 'memory_limit_bytes': 14 * 1024**3,
+             'sampled_peak_swap_bytes': swap_peak, 'swap_limit_bytes': swap_limit,
+             'sampled_peak_tasks': tasks_peak, 'tasks_limit': TASKS_MAX}
+    return code, systemd_result, guard_stop, start, usage
+
+
+def verify(kernels=None):
+    sandbox_preflight()
     # No submission elaboration has run before Comparator exports the trusted challenge.
-    deadline = receipt()['started_unix'] + 320 * 60
+    deadline = receipt()['started_unix'] + DEADLINE_SECONDS
     for kernel in kernels or ['lean', 'audit', 'nanoda']:
         data = receipt()
         if time.time() >= deadline:
@@ -442,43 +486,11 @@ print('Network/process namespaces, credential visibility, and read-only mounts p
             if kernel == 'nanoda':
                 data['kernels']['nanoda'] = {'status': 'incomplete', 'reason': 'total_deadline'}
             save(data); return
-        if kernel == 'nanoda':
-            prepare_nanoda_swap()
-        swap_limit = 16 * 1024**3 if kernel == 'nanoda' else 0
-        unit = 'bos-verifier-' + kernel
-        remaining = max(1, int(deadline - time.time()))
         command_args = sandbox_args() + ['/usr/bin/python3', str(WORK / 'control/inside.py'), str(WORK), kernel]
-        args = ['sudo', 'systemd-run', '--wait', '--pipe', '--unit=' + unit,
-                '--uid=' + str(os.getuid()), '--gid=' + str(os.getgid()),
-                '--property=RestrictAddressFamilies=~AF_UNIX', '--property=Nice=10',
-                '--property=CPUQuota=400%', '--property=MemoryMax=14G', '--property=MemorySwapMax=' + str(swap_limit),
-                '--property=RuntimeMaxSec=' + str(remaining), '--property=TasksMax=' + str(TASKS_MAX), *command_args]
-        print(f'{kernel}: isolated check started', flush=True)
-        start, peak, swap_peak, tasks_peak, guard_stop = time.monotonic(), 0, 0, 0, None
-        with (ART / f'{kernel}.log').open('w') as log:
-            proc = subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT)
-            while proc.poll() is None:
-                memory = Path('/sys/fs/cgroup/system.slice') / (unit + '.service') / 'memory.peak'
-                try: peak = max(peak, int(memory.read_text()))
-                except (FileNotFoundError, ValueError): pass
-                try: swap_peak = max(swap_peak, int(memory.with_name('memory.swap.current').read_text()))
-                except (FileNotFoundError, ValueError): pass
-                for name in ['pids.peak', 'pids.current']:
-                    try: tasks_peak = max(tasks_peak, int(memory.with_name(name).read_text()))
-                    except (FileNotFoundError, ValueError): pass
-                if shutil.disk_usage(WORK).free < 1024**3:
-                    guard_stop = 'disk space below 1 GiB'
-                    subprocess.run(['sudo', 'systemctl', 'stop', unit], check=False, stdout=log, stderr=log)
-                time.sleep(1)
-            code = proc.wait()
-        systemd_result = subprocess.run(['sudo', 'systemctl', 'show', unit, '--property=Result', '--value'],
-                                         capture_output=True, text=True, check=False).stdout.strip()
+        code, systemd_result, guard_stop, start, usage = launch_github(kernel, command_args, deadline)
         record = {'systemd_result': systemd_result, 'status': 'passed' if code == 0 else 'not_completed_or_rejected',
                   'exit_code': code, 'wall_seconds': round(time.monotonic() - start, 3),
-                  'sampled_peak_cgroup_bytes': peak, 'memory_limit_bytes': 14 * 1024**3,
-                  'sampled_peak_swap_bytes': swap_peak, 'swap_limit_bytes': swap_limit,
-                  'sampled_peak_tasks': tasks_peak, 'tasks_limit': TASKS_MAX,
-                  'guard_stop': guard_stop, 'log': kernel + '.log'}
+                  **usage, 'guard_stop': guard_stop, 'log': kernel + '.log'}
         text = (ART / f'{kernel}.log').read_text(errors='replace')
         if kernel != 'audit':
             record.update(kernel_outcome(kernel, code, text, systemd_result, guard_stop))

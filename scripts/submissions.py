@@ -97,10 +97,30 @@ def body_hash(body):
     return hashlib.sha256(body.encode('utf-8')).hexdigest()
 
 
+# Where a profile's proof check runs. 'github-split': two hosted jobs, a build job and a check job
+# (submission-check.yml, docs/execution.md). The selection gives its matrix entry split: true.
+RUNNERS = {'github', 'github-split'}
+
+
 def selected_profile(submission):
     if submission.get('entrypoint') == 'dft233':
-        return json.loads((ROOT / 'profiles/dft233.json').read_text())
-    return json.loads((ROOT / 'profiles/direct.json').read_text())[submission['problem']]
+        profile = json.loads((ROOT / 'profiles/dft233.json').read_text())
+    else:
+        profile = json.loads((ROOT / 'profiles/direct.json').read_text())[submission['problem']]
+    if profile.get('runner', 'github') not in RUNNERS:
+        raise ValueError('Unknown profile runner')
+    return profile
+
+
+def runner(submission):
+    return selected_profile(submission).get('runner', 'github')
+
+
+def matrix_entry(number, login, route, submission):
+    entry = {'issue_number': number, 'login': login, 'route': route}
+    if route == 'issue' and runner(submission) == 'github-split':
+        entry['split'] = True
+    return entry
 
 
 def resolve_request(request):
@@ -732,7 +752,7 @@ def select_bounded():
                 lease.reserve(queue_lease.admission_key(request))
                 authors.add(login)
                 Path(f"requests/{issue['number']}.json").write_text(canonical(request) + '\n')
-                selected.append({'issue_number': issue['number'], 'login': login, 'route': route})
+                selected.append(matrix_entry(issue['number'], login, route, request.get('submission')))
                 selection_outputs(selected)
             except derivation.Defer:
                 # Not reserved: the next scan starts at this candidate with a fresh read budget.

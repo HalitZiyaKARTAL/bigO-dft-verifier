@@ -361,6 +361,9 @@ def select_candidate(issue, lease, reader=None, comments=()):
             return None
         except TrustUnavailable:
             return None
+        if s.runner(selected['submission']) != 'github':
+            # The PR route has no build job. Today it admits only dft/3sum/apsp folders, and no such profile is split.
+            return None
         record = s.current_record(selected['submission']['problem'], selected['pr_url'])
         selected['record_gate'] = record
         selected.update(gate='ready' if s.qualifies_for_run(selected['submission'], record) else 'claimed_only', reason='record_gate')
