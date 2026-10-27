@@ -89,8 +89,8 @@ It is an operation-count theorem, not a bit-complexity claim.
 ## Split build for large proofs
 
 A profile with `"runner": "github-split"` runs in two hosted jobs of one
-workflow run. Today only `catalan` has it, and Catalan stays closed: only the
-maintainer smoke below runs it. Each job has the 350-minute job timeout and its
+workflow run. Today only `catalan` has it. Catalan opened on 2026-10-27, after
+the maintainer smoke below passed (run 40497685416, issue #68). Each job has the 350-minute job timeout and its
 own 320-minute deadline from its own `prepare`. The PR route has no build job,
 so a PR for a split profile starts no job.
 
@@ -199,18 +199,24 @@ Dispatch refuses an issue without the label, and an issue whose author is not
 the user who dispatches the run (`GITHUB_ACTOR`). It does not check the author
 association: the job token sees a private organization member as
 `CONTRIBUTOR` (issue #68, 2026-10-27). The acknowledgement pass
-skips issues with the label `test`, and the scan skips Catalan because it is
-closed. The run is `test_only` and never imported. It posts no result comment,
+and the scan skip issues with the label `test`, so only the dispatch runs a test
+issue. The run is `test_only` and never imported. It posts no result comment,
 no Lean checkpoint comment and no label. Read the artifacts.
 
-### Known limits before opening
+The smoke of 2026-10-27 (verifier 6032768): job 1 built in 6178 s with a peak of
+9.79 GB and packed 23,792 files (2.94 GB, 0 skipped). In job 2, the Lean kernel
+and the axiom audit ended 142 minutes after `prepare`, so 178 minutes of the
+320-minute deadline were left for nanoda.
+
+### Known limits
 
 - The Lean checkpoint watcher (`live_publish.watch`, 330 minutes) cannot see the
   Lean checkpoint of a split run, which comes about 6-7 hours after the start.
   So only the final report posts.
 - The queue lease is held for the whole split run: `queue_lease.acquire` has no
   time limit, and the run takes up to about 2 x 350 minutes.
-- The smoke measures the margin of job 2 and the peak memory of job 1.
+- Nanoda usually ends as `incomplete` (`total_deadline` or `timeout`): Comparator
+  replays the proof again in the nanoda pass. This does not prevent Lean Verified.
 
 GitHub's [runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 lists public `ubuntu-latest` as **4 vCPU, 16 GB RAM and 14 GB SSD**, checked

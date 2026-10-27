@@ -2,8 +2,9 @@
 
 Problem: https://bigospeedrun.com/other/catalan
 
-This is a trusted statement proposal. It is not a proof of a finite bound. A maintainer
-must enable it before it can accept race submissions.
+This is the trusted statement of the `catalan` profile. It is not a proof of a finite bound.
+The profile accepts issue submissions since 2026-10-27 (split build, see
+`docs/execution.md`). To convert an existing proof repository, see `docs/convert-layout.md`.
 
 `Statement.lean` defines Catalan's constant as the literal series
 
@@ -59,8 +60,9 @@ inequalities and from reduced to unreduced fractions. The inequality at the exac
 
 `Validation.lean` is not part of the trusted target. Finite bounds are claimed on the site
 (best 590, Sean Litsey, Claimed), with the authors' Lean proofs in a fixed-exponent form.
-This verifier did not run any of them, and none is on this profile, so there is no baseline
-proof here. These checks replace it. All use only `propext`, `Classical.choice`
+The maintainer smoke of 2026-10-27 checked Sean Litsey's exponent-1091 proof on this
+profile (fixture `bigospeedrun/verifier-smoke-catalan`); a test result is not listed on the
+site. These checks do not need a proof. All use only `propext`, `Classical.choice`
 and `Quot.sound`:
 
 - `irrational_of_upperBound`: `UpperBoundFor x r` implies `Irrational x`.

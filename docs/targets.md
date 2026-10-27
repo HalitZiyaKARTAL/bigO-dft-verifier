@@ -63,5 +63,30 @@ theorem Race.bound : BigOSpeedrun.AverageSensitivity.Bound ((p : ℚ) / q) := by
 `Bound C` states AS(sign p) ≤ C d √n for every real polynomial p of total degree at
 most d in n variables, 1 ≤ d ≤ n, with sign(0) = 1. A smaller C is better.
 
+## Catalan's constant
+
+Issue route only. Use Lean `leanprover/lean4:v4.34.1` and the Mathlib pin in
+`profiles/lake-manifest.json` (the DFT pin). The trusted statement is
+`challenges/catalan/Statement.lean`, namespace `BigOSpeedrun.Catalan`. For an
+exponent bound `p/q`, export:
+
+```lean
+theorem Race.bound : BigOSpeedrun.Catalan.Bound ((p : ℚ) / q) := by
+  -- Supply the proof.
+```
+
+For an integer bound, write `q = 1`, for example `((1091 : ℚ) / 1)`. `Bound r` says
+that `r ≥ 0` and that for every real `s > r`, for all large `b` and every integer `a`,
+`b^(-s) < |G - a/b|`. A smaller `r` is better. See
+[the statement README](../challenges/catalan/README.md) for the quantifiers.
+
+A Catalan proof is large, so it runs as a
+[split build](execution.md#split-build-for-large-proofs). Only the final result is
+posted, and nanoda usually ends as `incomplete` (this does not prevent Lean Verified).
+
+[Convert a proof repository to the Submission layout](convert-layout.md) explains how
+to move an existing proof (for example, Sean Litsey's Catalan repository) into the
+layout that the verifier reads.
+
 Integer multiplication and Subset Sum have no trusted statement in this gate.
 SSSP is outside the site submission scope.

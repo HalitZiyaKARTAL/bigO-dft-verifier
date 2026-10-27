@@ -81,7 +81,6 @@ class CatalanSmokeTests(unittest.TestCase):
     def test_fixture(self):
         self.assertEqual(smoke.CATALAN_FIXTURE,('catalan','1091','https://github.com/bigospeedrun/verifier-smoke-catalan',
                                                 'a3d48494df743e8dbf2dd5acb70dbe27759069e0'))
-        self.assertIn('catalan',s.CLOSED)
 
     def test_dispatch_selects_one_split_issue_entry(self):
         item,selected=self.dispatch()

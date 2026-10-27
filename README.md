@@ -1,6 +1,7 @@
 # Big O Speedrun verifier
 
-Submit a Lean proof of a bound for Fourier transform, 3SUM, or APSP.
+Submit a Lean proof of a bound for Fourier transform, 3SUM, APSP, average
+sensitivity, or Catalan's constant.
 The verifier checks the proof against our fixed statement on GitHub Actions.
 A passing submission appears as **Lean Verified** on [bigospeedrun.com](https://bigospeedrun.com).
 An open submission without a passing check appears as **Claimed**.
@@ -23,13 +24,23 @@ Choose either route. Both use the same statement, record gate, and proof checks.
 
 See [the problem guide](docs/targets.md) for the exact target and Lean version.
 
-Use `dft`, `3sum`, `apsp` or `average-sensitivity` for `problem`. Use an exact
-nonnegative rational for `bound`. For DFT, the bound is the saving s in
+Use `dft`, `3sum`, `apsp`, `average-sensitivity` or `catalan` for `problem`. Use an
+exact nonnegative rational for `bound`. For DFT, the bound is the saving s in
 O(n (log n)^(1-s)); a larger saving is better. For 3SUM and APSP, it is the
 exponent r in O(n^r); smaller is better. For average sensitivity (an Other bounds
 row), it is the coefficient C in AS(f) ≤ C d √n; smaller is better, and only the
-issue route takes it. The ranges are 0 ≤ s ≤ 1, 0 ≤ r ≤ 2 for 3SUM, 0 ≤ r ≤ 3 for
-APSP, and 0 ≤ C ≤ 8 for average sensitivity.
+issue route takes it. For Catalan's constant (an Other bounds row), it is an upper
+bound μ on the irrationality exponent of G; smaller is better, and only the issue
+route takes it. The ranges are 0 ≤ s ≤ 1, 0 ≤ r ≤ 2 for 3SUM, 0 ≤ r ≤ 3 for
+APSP, 0 ≤ C ≤ 8 for average sensitivity, and 0 ≤ μ ≤ 100000000 for Catalan.
+
+A Catalan proof is large, so it runs in two jobs: a build job, then the check job
+([split build](docs/execution.md#split-build-for-large-proofs)). This has three
+effects. The bot posts only the final result, not an earlier Lean checkpoint
+comment. The run holds the verifier queue for its full time, up to about 12 hours.
+Nanoda usually stops at its time limit (`incomplete`), and that does not prevent
+Lean Verified. To convert an existing proof repository, see
+[the Catalan section of the problem guide](docs/targets.md#catalans-constant).
 
 The verifier runs up to nine public submissions and one maintainer test in parallel,
 with one queued public run per GitHub account. A run starts only if the bound matches or beats the best Lean Verified result on that board (a Claimed result does not block it);

@@ -1,5 +1,5 @@
 """Maintainer-dispatched, non-importable smokes: the fixed historical DFT proof, the pinned average-sensitivity
-proof that must pass before that problem opens (submissions.CLOSED), and the Catalan split-build smoke. The Catalan
+proof that had to pass before that problem opened (submissions.CLOSED), and the Catalan split-build smoke. The Catalan
 smoke runs only on a maintainer test issue (label 'test') whose form is its fixture, and it posts nothing."""
 import json
 import os

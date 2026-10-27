@@ -1,9 +1,11 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -62,14 +64,54 @@ class GateTests(unittest.TestCase):
         self.assertTrue(s.qualifies_for_run({'problem': 'catalan', 'bound': '589'}, record))
 
 
-class ClosedTests(unittest.TestCase):
-    def test_catalan_is_closed_until_its_smoke(self):
-        self.assertIn('catalan', s.CLOSED)
+def issue(number=60, labels=()):
+    return {'number': number, 'state': 'open', 'title': '[Lean submission] test', 'body': body('1091'),
+            'user': {'login': 'submitter'}, 'created_at': '2026-10-27T12:00:00Z', 'updated_at': '2026-10-27T12:00:00Z',
+            'labels': [{'name': name} for name in labels]}
+
+
+class OpenTests(unittest.TestCase):
+    # Catalan opened on 2026-10-27 after its split-build smoke (run 40497685416, issue #68).
+    def test_catalan_is_open(self):
+        self.assertNotIn('catalan', s.CLOSED)
         with self.assertRaises(ValueError) as error:
             s.validate_submission({'schema_version': 1, 'problem': 'nope', 'bound': '1', 'repo_url': 'https://github.com/a/b',
                                    'commit': 'a' * 40, 'authors': []})
-        self.assertNotIn('catalan', str(error.exception))
+        self.assertIn('catalan', str(error.exception))
         self.assertEqual(s.board_line('catalan'), "Catalan's constant board: https://bigospeedrun.com/other/catalan")
+        form = (ROOT / '.github/ISSUE_TEMPLATE/lean-submission.yml').read_text()
+        self.assertIn('options: [dft, 3sum, apsp, average-sensitivity, catalan]', form)
+
+    def select(self, item):
+        import queue_lease
+        import derivation
+        lease = Mock(state={'page': 1, 'offset': 0}, admitted=Mock(return_value=False))
+        gate = {'schema_version': 1, 'score': '100000000', 'score_relation': 'attained', 'leader_ids': ['baseline'],
+                'any_lean_verified_at_bound': False, 'problem_id': 'other/catalan'}
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path.cwd(); os.chdir(tmp)
+            try:
+                with patch.dict(os.environ, GITHUB_OUTPUT=str(Path(tmp) / 'output')), patch.object(queue_lease, 'acquire', return_value=lease), \
+                     patch.object(s, 'api', side_effect=lambda p, data=None: [item] if p.startswith('issues?') else []), \
+                     patch.object(s, 'acknowledge'), patch.object(s, 'release'), patch.object(s, 'current_record', return_value=gate), \
+                     patch.object(derivation.Reader, 'get', side_effect=derivation.NotComputed('offline')):
+                    s.select()
+                request = Path('requests/60.json')
+                return (json.loads(request.read_text()) if request.exists() else None), (Path(tmp) / 'output').read_text()
+            finally:
+                os.chdir(old)
+
+    def test_an_open_issue_is_selected_as_a_split_run(self):
+        request, output = self.select(issue())
+        self.assertEqual((request['submission']['problem'], request['record_gate']['score']), ('catalan', '100000000'))
+        self.assertEqual(request['inputs']['challenge_file'], 'challenges/catalan/Statement.lean')
+        self.assertIn(s.canonical({'include': [{'issue_number': 60, 'login': 'submitter', 'route': 'issue', 'split': True}]}), output)
+
+    def test_the_scan_skips_a_maintainer_test_issue(self):
+        # Only the dispatch (smoke.py) runs a test issue; a label needs triage rights.
+        request, output = self.select(issue(labels=['test']))
+        self.assertIsNone(request)
+        self.assertNotIn('"issue_number":60', output)
 
 
 if __name__ == '__main__':

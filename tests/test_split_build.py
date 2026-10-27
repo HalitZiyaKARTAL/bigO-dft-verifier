@@ -31,8 +31,8 @@ class RunnerTests(unittest.TestCase):
         for problem in ['dft', '3sum', 'apsp', 'average-sensitivity', 'subset-sum']:
             self.assertEqual(s.runner(sub(problem)), 'github')
         self.assertEqual(s.runner(dict(sub('dft', '7547360/10000000000'), entrypoint='dft233')), 'github')
-        # catalan stays closed for every normal path.
-        self.assertIn('catalan', s.CLOSED)
+        # Catalan opened on 2026-10-27; its issues run as split runs.
+        self.assertNotIn('catalan', s.CLOSED)
 
     def test_an_unknown_runner_is_refused(self):
         profiles = json.loads((ROOT / 'profiles/direct.json').read_text())
