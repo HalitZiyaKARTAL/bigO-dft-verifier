@@ -89,7 +89,10 @@ class AllowListTests(unittest.TestCase):
                             ('lib/lean/Submission/../../Mathlib.olean', False), ('/lib/lean/Submission.olean', False),
                             ('lib/lean/Submission/./A.olean', False), ('lib//lean/Submission.olean', False),
                             ('lib/lean/Submission/A.olean/', False), ('lib/lean/Submission/\udcff.olean', False),
-                            ('lib/lean/Submission/A\0.olean', False), ('', False)]:
+                            ('lib/lean/Submission/A\0.olean', False), ('', False),
+                            # Shared libraries: Lake puts .lake/build/lib on LD_LIBRARY_PATH (docs/execution.md).
+                            ('lib/libleanshared.so', False), ('lib/lean/libleanshared.so', False), ('lib/lean/libc.so.6', False),
+                            ('lib/libc.so.6', False), ('lib/lean/Submission/../x', False), ('lib/lean/Submission/../libc.so.6', False)]:
             with self.subTest(rel=rel, is_dir=is_dir):
                 self.assertFalse(v.build_allowed(rel, is_dir, ROOTS))
 
@@ -141,6 +144,7 @@ class Base(unittest.TestCase):
     def unpack(self, sha=None, result='success'):
         sha = sha if sha is not None else hashlib.sha256((self.out / 'build.tar').read_bytes()).hexdigest()
         def command(args, label, *a, **k):
+            self.assertEqual(os.listdir(self.build), [])  # Before any restored file exists.
             (self.art / (label + '.log')).write_text('/w/.lake/packages/mathlib/.lake/build/lib/lean:/w/stage/.lake/build/lib/lean\n')
         with patch.dict(os.environ, BOS_BUILD_RESULT=result, BOS_BUILD_SHA256=sha), patch.object(v, 'command', side_effect=command) as c:
             v.unpack()
@@ -165,6 +169,7 @@ class PackTests(Base):
         self.put('lib/lean/VerifierChallenge.olean', b'evil')
         self.put('lib/lean/Init/Prelude.olean', b'evil')
         self.put('lib/libSubmission.a', b'lib')
+        self.put('lib/libleanshared.so', b'evil'); self.put('lib/lean/libc.so.6', b'evil')
         secret = self.tmp / 'secret'; secret.write_text('runner secret')
         os.symlink(secret, self.build / 'lib/lean/Submission/OAI/Link.olean')
         os.symlink(self.tmp, self.build / 'lib/lean/Submission/Dir')
@@ -184,8 +189,8 @@ class PackTests(Base):
         self.assertEqual(record['skipped_first'], ['ir/Submission/fifo', 'lib/lean/Init', 'lib/lean/Mathlib', 'lib/lean/Submission.olean',
                                                    'lib/lean/Submission/Dir', 'lib/lean/Submission/Hard.olean',
                                                    'lib/lean/Submission/OAI/Link.olean', 'lib/lean/VerifierChallenge.olean',
-                                                   'lib/libSubmission.a'])
-        self.assertEqual((record['members'], record['files'], record['bytes'], record['skipped_count']), (6, 2, 3001, 9))
+                                                   'lib/lean/libc.so.6', 'lib/libSubmission.a', 'lib/libleanshared.so'])
+        self.assertEqual((record['members'], record['files'], record['bytes'], record['skipped_count']), (6, 2, 3001, 11))
         sha = hashlib.sha256((self.out / 'build.tar').read_bytes()).hexdigest()
         self.assertEqual(record['sha256'], sha)
         self.assertEqual(self.output.read_text(), 'build_sha256=' + sha + '\n')
@@ -309,7 +314,9 @@ class UnpackTests(Base):
                'duplicate': self.info('lib/lean/Submission/A.olean'), 'no-mtime': None, 'float-mtime': self.info('lib/lean/Submission/M.olean', mtime='1.5'),
                'linkpath': self.info('lib/lean/Submission/P.olean', linkpath='/etc/passwd'),
                'sparse': self.info('lib/lean/Submission/S.olean', **{'GNU.sparse.map': '0,1'}),
-               'non-utf8': self.info('lib/lean/Submission/\udcff.olean')}
+               'non-utf8': self.info('lib/lean/Submission/\udcff.olean'),
+               'shared-lib': self.info('lib/libleanshared.so'), 'shared-lib-lean': self.info('lib/lean/libleanshared.so'),
+               'libc': self.info('lib/lean/libc.so.6'), 'dotdot-x': self.info('lib/lean/Submission/../x')}
         bad['no-mtime'] = self.info('lib/lean/Submission/N.olean'); bad['no-mtime'][0].pax_headers = {}
         for name, member in bad.items():
             with self.subTest(member=name):

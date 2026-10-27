@@ -5,7 +5,7 @@ import unittest
 import os
 import tempfile
 import json
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import smoke
 import submissions as s
@@ -44,20 +44,26 @@ class SmokeTests(unittest.TestCase):
 
 
 class CatalanSmokeTests(unittest.TestCase):
-    """The split-build smoke: fixed fixture, test_only, never imported, nothing posted."""
+    """The split-build smoke: a maintainer test issue with the fixture form, test_only, never imported, nothing posted."""
     def setUp(self):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.tmp=Path(tmp.name)
         old=Path.cwd();os.chdir(self.tmp);self.addCleanup(os.chdir,old)
 
-    def dispatch(self,number='48',item=None):
+    def issue(self,number=48,labels=('test',),association='MEMBER',**fields):
         from test_submissions import issue
-        item=item or issue(int(number),problem='average-sensitivity',bound='1881/500')
-        event=self.tmp/'event.json';event.write_text(json.dumps({'inputs':{'smoke_route':'catalan_split','smoke_number':number}}))
+        problem,bound,repo,commit=smoke.CATALAN_FIXTURE
+        item=issue(number,**{'problem':problem,'bound':bound,'commit':commit,**fields})
+        item['body']=item['body'].replace('https://github.com/example/proof',repo)
+        return dict(item,labels=[{'name':name} for name in labels],author_association=association)
+
+    def dispatch(self,item=None):
+        item=item or self.issue()
+        event=self.tmp/'event.json';event.write_text(json.dumps({'inputs':{'smoke_route':'issue','smoke_number':str(item['number'])}}))
         with patch.dict(os.environ,GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_EVENT_PATH=str(event),BOS_SMOKE_DISPATCH='1',
                         GITHUB_OUTPUT=str(self.tmp/'output')),patch.object(s,'api',return_value=item) as api:
             self.assertTrue(smoke.dispatch(None))
-        api.assert_called_once_with(f'issues/{number}')
-        return item,json.loads(Path(f'requests/{number}.json').read_text())
+        api.assert_called_once_with(f"issues/{item['number']}")
+        return item,json.loads(Path(f"requests/{item['number']}.json").read_text())
 
     def test_fixture(self):
         self.assertEqual(smoke.CATALAN_FIXTURE,('catalan','1091','https://github.com/bigospeedrun/verifier-smoke-catalan',
@@ -66,39 +72,47 @@ class CatalanSmokeTests(unittest.TestCase):
 
     def test_dispatch_selects_one_split_issue_entry(self):
         item,selected=self.dispatch()
-        self.assertEqual(selected['submission'],smoke.catalan_submission())
+        self.assertEqual(smoke.fixture(selected['submission']),smoke.CATALAN_FIXTURE)
+        self.assertEqual(selected['submission'],s.issue_input(item))
         self.assertEqual((selected['test_only'],selected['live_smoke'],selected['lease_kind']),(True,smoke.CATALAN_TAG,'smoke'))
-        self.assertEqual(selected['issue_body_sha256'],s.body_hash(item['body']))
         self.assertTrue(smoke.active(selected));self.assertTrue(smoke.silent(selected))
         out=(self.tmp/'output').read_text()
         self.assertIn('matrix='+s.canonical({'include':[{'issue_number':48,'login':'submitter','route':'issue','split':True}]}),out)
-        for field,value in [('test_only',False),('live_smoke',smoke.TAG),('route','pull_request'),
+        for field,value in [('test_only',False),('live_smoke',smoke.TAG),('live_smoke',smoke.AS_TAG),('route','pull_request'),
                             ('submission',dict(selected['submission'],bound='1090'))]:
-            with self.subTest(field=field):
+            with self.subTest(field=field,value=value):
                 self.assertFalse(smoke.active(dict(selected,**{field:value})))
                 self.assertFalse(smoke.silent(dict(selected,**{field:value})))
         # The other smokes are not silent.
         sub=s.validate_submission({'schema_version':1,'problem':'dft','repo_url':smoke.REPO,'commit':smoke.PIN,'bound':smoke.BOUND,'authors':[]})
         self.assertFalse(smoke.silent({'test_only':True,'live_smoke':smoke.TAG,'submission':smoke.issue_submission(sub)}))
 
-    def test_a_closed_or_non_submission_issue_is_refused(self):
-        from test_submissions import issue
-        for item in [dict(issue(48),state='closed'),dict(issue(48),title='A question')]:
-            with self.subTest(item=item['title']),self.assertRaises(ValueError):
-                self.dispatch(item=item)
+    def test_only_a_maintainer_test_issue_with_the_fixture_form(self):
+        for item in [self.issue(labels=()),self.issue(labels=('bug',)),self.issue(association='CONTRIBUTOR'),
+                     self.issue(association='NONE'),self.issue(association='COLLABORATOR'),
+                     self.issue(bound='1090'),self.issue(commit='b'*40)]:
+            with self.subTest(labels=item['labels'],association=item['author_association'],body=item['body']),self.assertRaises(ValueError):
+                self.dispatch(item)
+        # No issue form at all: the existing smoke code refuses it too (issue_input gives None).
+        for item in [dict(self.issue(),state='closed'),dict(self.issue(),title='A question')]:
+            with self.subTest(item=item['title']),self.assertRaises((ValueError,AttributeError)):
+                self.dispatch(item)
+        self.assertFalse(Path('requests').exists())
 
     def test_preflight_binds_the_issue_body_and_skips_the_record_gate(self):
         import queue_lease
         item,selected=self.dispatch()
-        for current,proceed in [(item,'true'),(dict(item,body=item['body'].replace('1881/500','1881/501')),'false')]:
-            with self.subTest(proceed=proceed):
-                Path('request').mkdir(exist_ok=True);Path('request/request.json').write_text(s.canonical(selected))
-                (self.tmp/'output').write_text('')
-                with patch.dict(os.environ,GITHUB_OUTPUT=str(self.tmp/'output')),patch.object(queue_lease,'assert_owner') as owner,\
-                     patch.object(s,'api',return_value=current),patch.object(s,'current_record') as record:
-                    s.preflight()
-                owner.assert_called_once_with(queue_lease.SMOKE_REF);record.assert_not_called()
-                self.assertEqual((self.tmp/'output').read_text(),'proceed='+proceed+'\n')
+        Path('request').mkdir(exist_ok=True);Path('request/request.json').write_text(s.canonical(selected))
+        with patch.dict(os.environ,GITHUB_OUTPUT=str(self.tmp/'output')),patch.object(queue_lease,'assert_owner') as owner,\
+             patch.object(s,'api',return_value=item),patch.object(s,'current_record') as record:
+            (self.tmp/'output').write_text('');s.preflight()
+            owner.assert_called_once_with(queue_lease.SMOKE_REF);record.assert_not_called()
+            self.assertEqual((self.tmp/'output').read_text(),'proceed=true\n')
+            # An edited form is no longer the fixture: preflight stops, so no check runs.
+            Path('request/request.json').write_text(s.canonical(selected));(self.tmp/'output').write_text('')
+            with patch.object(s,'api',return_value=dict(item,body=item['body'].replace('1091','1092'))),self.assertRaises(ValueError):
+                s.preflight()
+            self.assertEqual((self.tmp/'output').read_text(),'')
 
     def test_the_report_posts_nothing(self):
         item,selected=self.dispatch()
@@ -132,5 +146,26 @@ class CatalanSmokeTests(unittest.TestCase):
                 live.watch()
             self.assertEqual(publish.call_count,calls);label.assert_not_called()
             self.assertEqual(archive.call_count,1)  # Only the selection artifact is read.
+
+    def test_the_scan_posts_nothing_on_the_test_issue(self):
+        import queue_lease
+        item=self.issue()
+        posts=[]
+        def api(path,data=None,method=None):
+            if data is not None or method is not None:posts.append(path);return {'id':1}
+            if path.startswith('issues?'):return [item]
+            if '/comments?' in path:return []
+            raise AssertionError(path)
+        lease=Mock(state={'page':1,'offset':0},admitted=Mock(return_value=False))
+        with patch.dict(os.environ,GITHUB_OUTPUT=str(self.tmp/'output')),patch.object(s,'api',side_effect=api),\
+             patch.object(s,'release'),patch.object(queue_lease,'acquire',return_value=lease),patch.object(smoke,'requested',return_value=None):
+            s.select_bounded()
+        self.assertEqual(posts,[])
+        lease.reserve.assert_not_called()
+        # Without the label, the acknowledgement pass answers the closed problem as before.
+        item=self.issue(labels=())
+        with patch.object(s,'api',side_effect=api):
+            s.acknowledge()
+        self.assertEqual(posts,['issues/48/comments'])
 
 if __name__=='__main__':unittest.main()

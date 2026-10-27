@@ -488,6 +488,7 @@ def select():
 
 
 ACK = '<!-- bos-ack-v1 '
+TEST_LABEL = 'test'
 ACK_LIMIT = 30  # Newest open issues and PRs acknowledged per scan.
 ACK_CALLS = 120  # The pass's own API cap and time cap: the selection after it keeps the rest of the budget.
 ACK_SECONDS = 60
@@ -523,6 +524,8 @@ def acknowledge():
 
     def reply(item):
         number = item['number']
+        if 'pull_request' not in item and TEST_LABEL in [label.get('name') for label in item.get('labels') or [] if isinstance(label, dict)]:
+            return  # A maintainer test issue (a label needs triage rights): the silent smoke posts nothing.
         if 'pull_request' in item:
             budget['calls'] += 1
             pull = pr.api(f'pulls/{number}')
@@ -791,7 +794,7 @@ def preflight():
         candidate = None
     smoke_test = __import__('smoke').active(selected)
     if smoke_test and candidate is not None:
-        candidate = __import__('smoke').current_submission(candidate, selected)
+        candidate = __import__('smoke').issue_submission(candidate)
     proceed = candidate == selected['submission'] and body_hash(current['body']) == selected['issue_body_sha256']
     record = selected['record_gate'] if smoke_test else current_record(selected['submission']['problem'], selected['issue_url'])
     proceed = proceed and (smoke_test or qualifies_for_run(selected['submission'], record))
@@ -876,7 +879,7 @@ def report_submission(current, selected):
     sub = issue_input(current)
     import smoke
     if smoke.active(selected):
-        sub = smoke.current_submission(sub, selected)
+        sub = smoke.issue_submission(sub)
     return sub
 
 

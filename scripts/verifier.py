@@ -671,6 +671,11 @@ def unpack():
     base = WORK / 'stage/.lake/build'
     if not stat.S_ISDIR(os.lstat(base).st_mode) or os.listdir(base):
         raise RuntimeError('build folder is not the empty folder from prepare')
+    # Record the LEAN_PATH that Lake gives Comparator, before any restored file exists.
+    # Trusted: our Lake config only, no submission code.
+    command(sandbox_args() + [str(toolchain_dir() / 'bin/lake'), 'env', 'printenv', 'LEAN_PATH'], 'lean-path')
+    lines = (ART / 'lean-path.log').read_text(errors='replace').split()
+    data = receipt(); data['lean_path'] = lines[-1].split(':') if lines else []; save(data)
     with tarfile.open(path, 'r:') as tar:
         checked, names, total = [], set(), 0
         for m in tar:
@@ -701,10 +706,6 @@ def unpack():
     data = receipt()
     data['unpack'] = {'sha256': expected, 'members': len(checked), 'files': sum(not m.isdir() for m, _ in checked), 'bytes': total}
     save(data)
-    # Record the LEAN_PATH that Lake gives Comparator. Trusted: our Lake config only, no submission code.
-    command(sandbox_args() + [str(toolchain_dir() / 'bin/lake'), 'env', 'printenv', 'LEAN_PATH'], 'lean-path')
-    lines = (ART / 'lean-path.log').read_text(errors='replace').split()
-    data = receipt(); data['lean_path'] = lines[-1].split(':') if lines else []; save(data)
 
 
 def verify_lean():

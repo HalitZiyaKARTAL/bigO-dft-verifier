@@ -160,18 +160,51 @@ package. They can shadow the toolchain's own modules: a `lib/lean/Init/` folder
 there would replace `Init` for every later Lean process. Rule S1 is the reason
 that the split is safe: job 2 restores only the solution's own roots, and a
 root cannot be `Init`, `Std`, `Lean`, `Lake` or `Verifier*`. The challenge
-imports only Mathlib. Before Comparator, unpack runs `lake env printenv
+imports only Mathlib. Before it restores a file, unpack runs `lake env printenv
 LEAN_PATH` in the sandbox (our Lake config only, no submission code) and saves
 the result as `lean_path` in the receipt, so each split run records the order.
 
+Shared libraries: `lake env` also sets `LD_LIBRARY_PATH`
+(`Workspace.lean:372-373`, `:409-410`, `:431`; `Package.lean:374-375`;
+`InstallPath.lean:160-164`). The order is the toolchain's `lib/lean` and `lib`,
+then each package's `.lake/build/lib` (the root first), then the initial value.
+The root folder comes after the toolchain, but the Linux loader reads
+`LD_LIBRARY_PATH` before `/etc/ld.so.cache` and the system folders. So a
+library that the toolchain does not ship, for example `libc.so.6`, in the root
+`.lake/build/lib` would load in each later process that `lake env` starts. S1
+also keeps shared libraries out of those folders: it restores nothing directly
+in `lib/` or `lib/lean/`.
+
+Note on the existing single-job path (not changed here): the nanoda pass and
+the axiom audit start after the submission build of the same job. So their
+processes can load a planted library or a shadowed `Init`. The Lean pass verdict
+is not affected: Comparator exports the challenge before the solution build,
+and it checks the axioms and replays the kernel in its own process, which
+started before the build. The same applies to job 2 when its one Lake call
+rebuilds a module.
+
 ### Catalan smoke (maintainers only)
 
-Dispatch **Verify direct submissions** with `smoke_route: catalan_split` and
-`smoke_number` set to an open submission issue that already has the bot's
-acknowledgement. Do not edit that issue: an edit gets a new reply. The issue is
-only the run identity; the fixture is `smoke.CATALAN_FIXTURE` (bound 1091). The
-run is `test_only` and never imported. It posts no result comment, no Lean
-checkpoint comment and no label. Read the artifacts.
+A `test_only` artifact makes the site exclude the claim of its issue, so the
+smoke must never run on another person's issue. A maintainer (author
+association `OWNER` or `MEMBER`) opens a test issue with the form of
+`smoke.CATALAN_FIXTURE`: problem `catalan`, the fixture repository URL, commit
+`a3d48494df743e8dbf2dd5acb70dbe27759069e0`, bound `1091`. The maintainer adds
+the label `test` (a label needs triage rights). Then dispatch **Verify direct
+submissions** with `smoke_route: issue` and that issue number. Dispatch refuses
+an issue without the label or from another author. The acknowledgement pass
+skips issues with the label `test`, and the scan skips Catalan because it is
+closed. The run is `test_only` and never imported. It posts no result comment,
+no Lean checkpoint comment and no label. Read the artifacts.
+
+### Known limits before opening
+
+- The Lean checkpoint watcher (`live_publish.watch`, 330 minutes) cannot see the
+  Lean checkpoint of a split run, which comes about 6-7 hours after the start.
+  So only the final report posts.
+- The queue lease is held for the whole split run: `queue_lease.acquire` has no
+  time limit, and the run takes up to about 2 x 350 minutes.
+- The smoke measures the margin of job 2 and the peak memory of job 1.
 
 GitHub's [runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 lists public `ubuntu-latest` as **4 vCPU, 16 GB RAM and 14 GB SSD**, checked
