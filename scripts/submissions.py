@@ -798,6 +798,10 @@ def preflight():
     proceed = candidate == selected['submission'] and body_hash(current['body']) == selected['issue_body_sha256']
     record = selected['record_gate'] if smoke_test else current_record(selected['submission']['problem'], selected['issue_url'])
     proceed = proceed and (smoke_test or qualifies_for_run(selected['submission'], record))
+    # Split run: job 1's gate said claimed_only, so it uploaded no build. Only an explicit 'false' counts;
+    # an empty value (job 1 failed before its gate) leaves the check to unpack, which refuses.
+    if os.environ.get('BOS_SPLIT') == 'true' and os.environ.get('BOS_BUILD_PROCEED') == 'false':
+        proceed = False
     selected['record_gate'] = record
     Path('artifacts').mkdir(exist_ok=True)
     Path('artifacts/selected-request.json').write_text(canonical(selected)+'\n')

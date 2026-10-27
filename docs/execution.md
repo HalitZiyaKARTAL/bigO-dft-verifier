@@ -108,15 +108,19 @@ so a PR for a split profile starts no job.
    than 8 GiB or 200,000 members. It writes a sorted tar with fixed owners and
    modes and the real mtimes, to the nanosecond. The job uploads that tar, never
    the raw folder, as `verifier-build-<run>-<attempt>-<issue>` (1 day). Its
-   sha256 is the job output `build_sha256`.
-3. Job `verify` has `needs: build`. Its `if:` uses `!cancelled()`, because
+   sha256 is the job output `build_sha256`. That hash covers only `build.tar`.
+   `build.json` and `build.log` are data from a trusted step of the same run
+   (only that run's jobs can upload to it), and they go to the receipt as data only.
+3. Job `verify` has `needs: build`. Its gate also stops (claimed only) when
+   job 1's gate said `false`. Its `if:` uses `!cancelled()`, because
    GitHub skips a job whose needed job was skipped unless a status function is
    used. So a run without split works as before. After `setup`, a split run
    downloads the tar and runs `verifier.py unpack` (trusted, rule S1). The build
    job must have succeeded, and `BOS_BUILD_SHA256` must equal the sha256 of the
    tar. Unpack checks every member before it writes a file. Only regular files
    and directories with relative UTF-8 names in the allow-list are permitted.
-   One other member refuses the whole archive. Unpack writes into the empty
+   One other member refuses the whole archive. A source root may not have the
+   name of an entry in the toolchain's `lib/lean`. Unpack writes into the empty
    build folder from `prepare`, with `O_EXCL` and `O_NOFOLLOW`, and sets the
    mtimes. If unpack fails, no check runs, and the receipt ends as
    `setup_failed`. The report job runs as before.

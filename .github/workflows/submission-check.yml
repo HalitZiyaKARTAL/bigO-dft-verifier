@@ -88,6 +88,9 @@ jobs:
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
+          # A split run follows job 1's gate: a claimed-only end there uploads no build.
+          BOS_SPLIT: ${{ inputs.split }}
+          BOS_BUILD_PROCEED: ${{ needs.build.outputs.proceed }}
         run: python3 scripts/submissions.py preflight
       - if: steps.gate.outputs.proceed == 'true'
         run: python3 -m unittest discover -s tests -v

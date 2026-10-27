@@ -113,6 +113,30 @@ class ChainTargetTests(unittest.TestCase):
         self.assertEqual(v.chain_targets(dft, chains), 'Submission.B\nSubmission\n')
 
 
+class SplitGateTests(unittest.TestCase):
+    """Job 2 follows job 1's gate: an explicit 'false' there ends job 2 as claimed only."""
+    def test_preflight(self):
+        import queue_lease
+        from test_submissions import issue
+        item = issue(42)
+        selected = s.issue_request(item, s.issue_input(item))
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path.cwd(); os.chdir(tmp); self.addCleanup(os.chdir, old)
+            for split, proceed, expected in [('true', 'true', 'true'), ('true', 'false', 'false'), ('true', '', 'true'),
+                                             ('false', 'false', 'true'), ('', 'false', 'true'), ('false', '', 'true')]:
+                with self.subTest(split=split, proceed=proceed):
+                    Path('request').mkdir(exist_ok=True); Path('request/request.json').write_text(s.canonical(selected))
+                    Path('output').write_text('')
+                    with patch.dict(os.environ, GITHUB_OUTPUT=str(Path(tmp) / 'output'), BOS_SPLIT=split, BOS_BUILD_PROCEED=proceed), \
+                         patch.object(queue_lease, 'assert_owner'), patch.object(s, 'api', return_value=item), \
+                         patch.object(s, 'current_record', return_value={'score': '1'}), patch.object(s, 'qualifies_for_run', return_value=True):
+                        s.preflight()
+                    self.assertEqual(Path('output').read_text(), 'proceed=' + expected + '\n')
+                    gate = json.loads(Path('artifacts/gate.json').read_text())
+                    self.assertEqual((gate['status'], gate['reason']), ('proceed', 'matches_or_beats_current_record') if expected == 'true'
+                                     else ('claimed_only', 'record_or_issue_changed'))
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
@@ -125,6 +149,11 @@ class Base(unittest.TestCase):
         v.write_json(self.work / 'control/request.json', {'request': {'lean_toolchain': 'leanprover/lean4:v4.34.1'},
                                                           'profile': profile, 'names': ['Race.bound']})
         self.build = self.work / 'stage/.lake/build'; self.build.mkdir(parents=True)
+        # A fake toolchain lib/lean: unpack refuses a root with the name of one of its entries.
+        self.toolchain_lib = self.work / 'tools/elan/toolchains/leanprover--lean4---v4.34.1/lib/lean'
+        self.toolchain_lib.mkdir(parents=True)
+        for name in ['Init', 'Init.olean', 'Std', 'Lean.olean', 'Lake', 'libleanshared.so']:
+            (self.toolchain_lib / name).mkdir() if '.' not in name else (self.toolchain_lib / name).write_text('')
         self.art.mkdir()
         v.save({'started_unix': 1000.0, 'steps': [], 'kernels': {}, 'build': {'exit_code': 0}})
         self.output = self.tmp / 'github-output'
@@ -275,6 +304,22 @@ class UnpackTests(Base):
             self.unpack(sha=sha)
         self.assertEqual(os.listdir(self.build), [])
 
+    def test_a_root_with_a_toolchain_module_name_is_refused(self):
+        self.packed()
+        for entry in ['Submission', 'Submission.olean', 'Submission.ilean']:
+            with self.subTest(entry=entry):
+                path = self.toolchain_lib / entry; path.write_text('')
+                with patch.object(v, 'command') as command, self.assertRaises(ValueError):
+                    self.unpack()
+                path.unlink()
+                command.assert_not_called()
+                self.assertEqual(os.listdir(self.build), [])
+        # Fail closed if the folder is missing.
+        shutil.rmtree(self.toolchain_lib)
+        with self.assertRaises(FileNotFoundError):
+            self.unpack()
+        self.assertEqual(os.listdir(self.build), [])
+
     def test_the_build_folder_must_be_empty(self):
         self.packed()
         (self.build / 'lib').mkdir()
@@ -417,6 +462,11 @@ class WorkflowTests(unittest.TestCase):
                                          'BOS_BUILD_SHA256': '${{ needs.build.outputs.build_sha256 }}'})
         for step in [download, unpack]:
             self.assertEqual(step['if'], "inputs.split && steps.gate.outputs.proceed == 'true'")
+        gate = next(step for step in steps if step.get('id') == 'gate')
+        self.assertEqual(gate['env'], {'GH_TOKEN': '${{ github.token }}', 'BOS_SPLIT': '${{ inputs.split }}',
+                                       'BOS_BUILD_PROCEED': '${{ needs.build.outputs.proceed }}'})
+        build_gate = next(step for step in jobs['build']['steps'] if step.get('id') == 'gate')
+        self.assertEqual(build_gate['env'], {'GH_TOKEN': '${{ github.token }}'})
         # Without split, the steps are the steps of 255e338, and the report job is unchanged.
         plain = [r for r, step in zip(runs, steps) if 'inputs.split' not in str(step.get('if'))]
         self.assertEqual(plain, ['actions/checkout', 'actions/download-artifact', 'python3 scripts/submissions.py materialize',

@@ -668,6 +668,10 @@ def unpack():
     if path.is_symlink() or not path.is_file() or digest(path) != expected:
         raise ValueError('build artifact is missing or its sha256 does not match')
     roots = build_roots(json.loads((WORK / 'control/request.json').read_text())['profile'])
+    # Also refuse a root that names a module folder or file of the toolchain itself (fails if the folder is missing).
+    toolchain = {name.split('.')[0] for name in os.listdir(toolchain_dir() / 'lib/lean')}
+    if set(roots) & toolchain:
+        raise ValueError('source root has the name of a toolchain module')
     base = WORK / 'stage/.lake/build'
     if not stat.S_ISDIR(os.lstat(base).st_mode) or os.listdir(base):
         raise RuntimeError('build folder is not the empty folder from prepare')
