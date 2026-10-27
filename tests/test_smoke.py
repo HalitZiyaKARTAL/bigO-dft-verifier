@@ -66,6 +66,18 @@ class CatalanSmokeTests(unittest.TestCase):
         api.assert_called_once_with(f"issues/{item['number']}")
         return item,json.loads(Path(f"requests/{item['number']}.json").read_text())
 
+    def test_no_issue_form_applies_the_test_label(self):
+        # The label test admits a Catalan smoke, so only a user with triage rights may set it. An issue form can
+        # apply labels by itself (labels: in .github/ISSUE_TEMPLATE); none may apply test (lead, 2026-10-27).
+        import re
+        forms=sorted((Path(__file__).resolve().parents[1]/'.github/ISSUE_TEMPLATE').iterdir())
+        self.assertTrue(forms)
+        for form in forms:
+            text=form.read_text()
+            with self.subTest(form=form.name):
+                self.assertNotRegex(text,r'(?im)^\s*labels\s*:')
+                self.assertIsNone(re.search(r'(?im)^\s*-?\s*["\']?test["\']?\s*$',text))
+
     def test_fixture(self):
         self.assertEqual(smoke.CATALAN_FIXTURE,('catalan','1091','https://github.com/bigospeedrun/verifier-smoke-catalan',
                                                 'a3d48494df743e8dbf2dd5acb70dbe27759069e0'))
