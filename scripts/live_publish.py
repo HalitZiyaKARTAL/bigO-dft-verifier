@@ -75,7 +75,7 @@ def publish_issue(run, artifact):
 def watch():
     event=json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     run_id=event['workflow_run']['id'];attempt=event['workflow_run']['run_attempt']
-    seen=set();expected=None;deadline=time.monotonic()+330*60
+    seen=set();expected=None;silent=set();deadline=time.monotonic()+330*60
     while time.monotonic()<deadline:
         run=p.api(f'actions/runs/{run_id}')
         p.validate_run_identity(run,allow_running=True)
@@ -90,10 +90,14 @@ def watch():
                 if len(selected)>10 or any(not re.fullmatch(r'[1-9][0-9]*\.json',k) for k in selected):
                     raise ValueError('Invalid selection artifact')
                 expected={int(k[:-5]) for k in selected}
+                # A silent maintainer smoke gets no checkpoint comment and no review label.
+                silent={int(k[:-5]) for k,raw in selected.items() if __import__('smoke').silent(json.loads(raw))}
         for artifact in artifacts:
             match=re.fullmatch(rf'(pr-verification|verifier-receipt-and-logs)-{run_id}-{attempt}-([1-9][0-9]*)-lean',artifact['name'])
             if not match or artifact.get('expired') or artifact['id'] in seen:continue
             if expected is None or int(match[2]) not in expected:raise ValueError('Checkpoint outside selected batch')
+            if int(match[2]) in silent:
+                seen.add(artifact['id']);continue
             try:
                 if match[1]=='pr-verification':p.publish_pr(artifact,stage='lean')
                 else:publish_issue(run,artifact)

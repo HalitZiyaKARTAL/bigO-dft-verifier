@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       smoke_route:
-        description: Maintainer-only fixed DFT smoke, never imported
+        description: Maintainer-only fixed smoke, never imported (catalan_split posts nothing)
         type: choice
-        options: [none, issue, pull_request]
+        options: [none, issue, pull_request, catalan_split]
         default: none
       smoke_number:
-        description: Test issue or PR number (fixed DFT fixture only)
+        description: Test issue or PR number (fixed fixtures only; catalan_split uses the issue as run identity only)
         type: string
         default: ''
 permissions: {}

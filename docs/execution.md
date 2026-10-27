@@ -86,6 +86,93 @@ It is an operation-count theorem, not a bit-complexity claim.
   to make room for Lean and Mathlib. It does not reuse proof objects or publish
   cache entries from an untrusted build.
 
+## Split build for large proofs
+
+A profile with `"runner": "github-split"` runs in two hosted jobs of one
+workflow run. Today only `catalan` has it, and Catalan stays closed: only the
+maintainer smoke below runs it. Each job has the 350-minute job timeout and its
+own 320-minute deadline from its own `prepare`. The PR route has no build job,
+so a PR for a split profile starts no job.
+
+1. Job `build` (`contents: read`, `issues: read`, no secrets) runs the same
+   gate, tests, `prepare` and `setup`. Then `verifier.py build` runs one
+   parallel `lake build <solution module>` with the real Lake (not the chain
+   shim) in the same bwrap sandbox, in the unit `bos-verifier-build`. The unit
+   has the same caps as the checks and no swap. It stops 15 minutes before the
+   deadline. A failed or partial build does not stop the job. The receipt
+   records the exit code, the unit result and the sampled peak memory.
+2. `verifier.py pack` (trusted, rule S2) runs after the unit has stopped. It
+   walks `.lake/build` with `lstat` and never follows a symlink. It keeps only
+   the allow-list below (regular files with one link, and directories) and
+   records the count and the first 20 names of the other paths. It refuses more
+   than 8 GiB or 200,000 members. It writes a sorted tar with fixed owners and
+   modes and the real mtimes, to the nanosecond. The job uploads that tar, never
+   the raw folder, as `verifier-build-<run>-<attempt>-<issue>` (1 day). Its
+   sha256 is the job output `build_sha256`.
+3. Job `verify` has `needs: build`. Its `if:` uses `!cancelled()`, because
+   GitHub skips a job whose needed job was skipped unless a status function is
+   used. So a run without split works as before. After `setup`, a split run
+   downloads the tar and runs `verifier.py unpack` (trusted, rule S1). The build
+   job must have succeeded, and `BOS_BUILD_SHA256` must equal the sha256 of the
+   tar. Unpack checks every member before it writes a file. Only regular files
+   and directories with relative UTF-8 names in the allow-list are permitted.
+   One other member refuses the whole archive. Unpack writes into the empty
+   build folder from `prepare`, with `O_EXCL` and `O_NOFOLLOW`, and sets the
+   mtimes. If unpack fails, no check runs, and the receipt ends as
+   `setup_failed`. The report job runs as before.
+4. `prepare` writes one chain target for a split profile, the solution module.
+   So Comparator's solution build is one Lake call through the shim. It finds
+   the restored files up to date, or rebuilds at the submission's own time cost.
+   The kernel checks, the audit and the nanoda pass do not change. Nanoda gets
+   the time that is left; for Catalan we expect `incomplete: total_deadline`.
+
+The allow-list (`verifier.build_allowed`, one function for pack and unpack),
+for each source root R of the profile and its solution dependencies:
+`lib/lean/R.<ext>`, `lib/lean/R/…`, `ir/R.<ext>` and `ir/R/…`. Nothing else:
+no `VerifierChallenge*`, no `VerifierAudit*`, no `Mathlib/…`, no other folder.
+A source root cannot be `Init`, `Std`, `Lean`, `Lake` or `Verifier*`.
+
+### Why the restore is safe: the LEAN_PATH order
+
+In one job, Comparator builds and exports the challenge before submission code
+runs. In job 2, the restored files are there before the challenge build. Lake
+source at Lean v4.34.1 and v4.33.1 (the same lines in both tags):
+
+- `src/lake/Lake/Config/Workspace.lean:356-357`: `leanPath` is
+  `packages.foldl (fun dirs pkg => pkg.leanLibDir :: dirs) []`. The root package
+  is `packages[0]` (line 105; `Load/Workspace.lean:37` makes it with index 0).
+  So the root's `.lake/build/lib/lean` comes after every dependency package's
+  lib folder.
+- `Workspace.lean:391-392` and `:422`: `lake env` sets `LEAN_PATH` to
+  `leanPath ++ lakeEnv.leanPath`. `Config/Env.lean:255` puts Lake's `libDir`
+  first in `lakeEnv.leanPath`. For the toolchain's own Lake,
+  `Config/InstallPath.lean:195-199` (`LakeInstall.ofLean`, used at :423-427)
+  sets it to the toolchain's `lib/lean`. So the root's lib folder comes before the
+  toolchain's lib folder (`Init`, `Std`, `Lean`, `Lake`).
+- `src/Lean/Util/Path.lean:61-64` (`SearchPath.findWithExt`) takes the first
+  entry that has a folder or `.olean` file named after the first component of
+  the module name. `findOLean` (line 117) uses it and does not check that the
+  module file exists. `Path.lean:102` and `:109` put `LEAN_PATH` before the
+  built-in toolchain path.
+
+So files in the root build folder cannot shadow Mathlib or another dependency
+package. They can shadow the toolchain's own modules: a `lib/lean/Init/` folder
+there would replace `Init` for every later Lean process. Rule S1 is the reason
+that the split is safe: job 2 restores only the solution's own roots, and a
+root cannot be `Init`, `Std`, `Lean`, `Lake` or `Verifier*`. The challenge
+imports only Mathlib. Before Comparator, unpack runs `lake env printenv
+LEAN_PATH` in the sandbox (our Lake config only, no submission code) and saves
+the result as `lean_path` in the receipt, so each split run records the order.
+
+### Catalan smoke (maintainers only)
+
+Dispatch **Verify direct submissions** with `smoke_route: catalan_split` and
+`smoke_number` set to an open submission issue that already has the bot's
+acknowledgement. Do not edit that issue: an edit gets a new reply. The issue is
+only the run identity; the fixture is `smoke.CATALAN_FIXTURE` (bound 1091). The
+run is `test_only` and never imported. It posts no result comment, no Lean
+checkpoint comment and no label. Read the artifacts.
+
 GitHub's [runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 lists public `ubuntu-latest` as **4 vCPU, 16 GB RAM and 14 GB SSD**, checked
 2026-10-10. These are the documented standard-runner specifications; receipts

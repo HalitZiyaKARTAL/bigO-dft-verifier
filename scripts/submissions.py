@@ -791,7 +791,7 @@ def preflight():
         candidate = None
     smoke_test = __import__('smoke').active(selected)
     if smoke_test and candidate is not None:
-        candidate = __import__('smoke').issue_submission(candidate)
+        candidate = __import__('smoke').current_submission(candidate, selected)
     proceed = candidate == selected['submission'] and body_hash(current['body']) == selected['issue_body_sha256']
     record = selected['record_gate'] if smoke_test else current_record(selected['submission']['problem'], selected['issue_url'])
     proceed = proceed and (smoke_test or qualifies_for_run(selected['submission'], record))
@@ -876,7 +876,7 @@ def report_submission(current, selected):
     sub = issue_input(current)
     import smoke
     if smoke.active(selected):
-        sub = smoke.issue_submission(sub)
+        sub = smoke.current_submission(sub, selected)
     return sub
 
 
@@ -939,6 +939,8 @@ def report():
             body += '\n\n' + line
     # Content is generated solely from bounded fields. Never post proof logs.
     payload = {'issue_number': selected['issue_number'], 'body': body}
+    if __import__('smoke').silent(selected):
+        payload['silent'] = True
     if close:
         payload['close'] = close
     if gate_path.exists() and json.loads(gate_path.read_text())['status'] == 'claimed_only' and not stale and not result['test_only']:
@@ -953,6 +955,9 @@ def report():
 def publish():
     # Called only after the immutable result artifact has uploaded successfully.
     comment = json.loads(Path('published-comment.json').read_text())
+    if comment.get('silent'):
+        print('Silent maintainer smoke: nothing is posted; read the result artifact.', flush=True)
+        return
     comment_once(comment['issue_number'], comment['body'])
     # A final result closes the issue: completed on a pass, not planned on a rejection.
     # Only the report comment carries a close decision; earlier comments never close.
