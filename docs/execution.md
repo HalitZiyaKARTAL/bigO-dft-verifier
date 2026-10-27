@@ -190,13 +190,14 @@ rebuilds a module.
 ### Catalan smoke (maintainers only)
 
 A `test_only` artifact makes the site exclude the claim of its issue, so the
-smoke must never run on another person's issue. A maintainer (author
-association `OWNER` or `MEMBER`) opens a test issue with the form of
-`smoke.CATALAN_FIXTURE`: problem `catalan`, the fixture repository URL, commit
-`a3d48494df743e8dbf2dd5acb70dbe27759069e0`, bound `1091`. The maintainer adds
-the label `test` (a label needs triage rights). Then dispatch **Verify direct
-submissions** with `smoke_route: issue` and that issue number. Dispatch refuses
-an issue without the label or from another author. The acknowledgement pass
+smoke must never run on another person's issue. A maintainer opens a test
+issue with the form of `smoke.CATALAN_FIXTURE`: problem `catalan`, the fixture
+repository URL, commit `a3d48494df743e8dbf2dd5acb70dbe27759069e0`, bound
+`1091`, and the label `test` (a label needs triage rights). Then dispatch
+**Verify direct submissions** with `smoke_route: issue` and that issue number.
+Dispatch refuses an issue without the label. It does not check the author
+association: the job token sees a private organization member as
+`CONTRIBUTOR` (issue #68, 2026-10-27). The acknowledgement pass
 skips issues with the label `test`, and the scan skips Catalan because it is
 closed. The run is `test_only` and never imported. It posts no result comment,
 no Lean checkpoint comment and no label. Read the artifacts.

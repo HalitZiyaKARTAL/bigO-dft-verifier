@@ -87,8 +87,9 @@ def dispatch(lease):
     if route == 'issue' and fixture(selected['submission']) == CATALAN_FIXTURE:
         tag = CATALAN_TAG
         # Only a maintainer test issue: the label needs triage rights, and the acknowledgement pass skips it.
+        # Not author_association: the job token sees a private org member as CONTRIBUTOR (issue #68, 2026-10-27).
         labels = [label.get('name') for label in issue.get('labels') or [] if isinstance(label, dict)]
-        if 'test' not in labels or issue.get('author_association') not in ['OWNER', 'MEMBER']:
+        if 'test' not in labels:
             raise ValueError('Catalan smoke requires a maintainer test issue (label test)')
     selected.update(test_only=True, live_smoke=tag, lease_kind="smoke",
                     record_gate={'test_only': True, 'reason': 'authorized fixed-pin smoke; record gate bypassed'})

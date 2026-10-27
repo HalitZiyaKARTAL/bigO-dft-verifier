@@ -49,7 +49,8 @@ class CatalanSmokeTests(unittest.TestCase):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.tmp=Path(tmp.name)
         old=Path.cwd();os.chdir(self.tmp);self.addCleanup(os.chdir,old)
 
-    def issue(self,number=48,labels=('test',),association='MEMBER',**fields):
+    def issue(self,number=48,labels=('test',),association='CONTRIBUTOR',**fields):
+        # CONTRIBUTOR: the job token's view of a private organization member (issue #68).
         from test_submissions import issue
         problem,bound,repo,commit=smoke.CATALAN_FIXTURE
         item=issue(number,**{'problem':problem,'bound':bound,'commit':commit,**fields})
@@ -88,8 +89,7 @@ class CatalanSmokeTests(unittest.TestCase):
         self.assertFalse(smoke.silent({'test_only':True,'live_smoke':smoke.TAG,'submission':smoke.issue_submission(sub)}))
 
     def test_only_a_maintainer_test_issue_with_the_fixture_form(self):
-        for item in [self.issue(labels=()),self.issue(labels=('bug',)),self.issue(association='CONTRIBUTOR'),
-                     self.issue(association='NONE'),self.issue(association='COLLABORATOR'),
+        for item in [self.issue(labels=()),self.issue(labels=('bug',)),
                      self.issue(bound='1090'),self.issue(commit='b'*40)]:
             with self.subTest(labels=item['labels'],association=item['author_association'],body=item['body']),self.assertRaises(ValueError):
                 self.dispatch(item)
