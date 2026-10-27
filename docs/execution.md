@@ -195,7 +195,8 @@ issue with the form of `smoke.CATALAN_FIXTURE`: problem `catalan`, the fixture
 repository URL, commit `a3d48494df743e8dbf2dd5acb70dbe27759069e0`, bound
 `1091`, and the label `test` (a label needs triage rights). Then dispatch
 **Verify direct submissions** with `smoke_route: issue` and that issue number.
-Dispatch refuses an issue without the label. It does not check the author
+Dispatch refuses an issue without the label, and an issue whose author is not
+the user who dispatches the run (`GITHUB_ACTOR`). It does not check the author
 association: the job token sees a private organization member as
 `CONTRIBUTOR` (issue #68, 2026-10-27). The acknowledgement pass
 skips issues with the label `test`, and the scan skips Catalan because it is

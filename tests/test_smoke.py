@@ -57,11 +57,11 @@ class CatalanSmokeTests(unittest.TestCase):
         item['body']=item['body'].replace('https://github.com/example/proof',repo)
         return dict(item,labels=[{'name':name} for name in labels],author_association=association)
 
-    def dispatch(self,item=None):
+    def dispatch(self,item=None,actor='Submitter'):
         item=item or self.issue()
         event=self.tmp/'event.json';event.write_text(json.dumps({'inputs':{'smoke_route':'issue','smoke_number':str(item['number'])}}))
         with patch.dict(os.environ,GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_EVENT_PATH=str(event),BOS_SMOKE_DISPATCH='1',
-                        GITHUB_OUTPUT=str(self.tmp/'output')),patch.object(s,'api',return_value=item) as api:
+                        GITHUB_OUTPUT=str(self.tmp/'output'),GITHUB_ACTOR=actor),patch.object(s,'api',return_value=item) as api:
             self.assertTrue(smoke.dispatch(None))
         api.assert_called_once_with(f"issues/{item['number']}")
         return item,json.loads(Path(f"requests/{item['number']}.json").read_text())
@@ -105,6 +105,10 @@ class CatalanSmokeTests(unittest.TestCase):
                      self.issue(bound='1090'),self.issue(commit='b'*40)]:
             with self.subTest(labels=item['labels'],association=item['author_association'],body=item['body']),self.assertRaises(ValueError):
                 self.dispatch(item)
+        # Only the dispatching maintainer's own issue (GITHUB_ACTOR, case-insensitive).
+        for actor in ['someone-else','']:
+            with self.subTest(actor=actor),self.assertRaises(ValueError):
+                self.dispatch(self.issue(),actor=actor)
         # No issue form at all: the existing smoke code refuses it too (issue_input gives None).
         for item in [dict(self.issue(),state='closed'),dict(self.issue(),title='A question')]:
             with self.subTest(item=item['title']),self.assertRaises((ValueError,AttributeError)):
