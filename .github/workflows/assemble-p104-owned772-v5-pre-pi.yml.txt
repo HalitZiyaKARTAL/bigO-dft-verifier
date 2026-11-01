@@ -1,0 +1,115 @@
+name: Assemble P104 owned772 DFT submission
+
+# Upload this workflow and p104-owned772-delta.zip to a NEW builder branch.
+# The push trigger starts the assembly automatically.
+# Destination branch selected by the submitter: pr-halitziyav5-pre-pi.
+# workflow_dispatch is optional (GitHub requires workflow on default branch to expose manual Run).
+on:
+  push:
+    paths:
+      - "p104-owned772-delta.zip"
+      - ".github/workflows/assemble-p104-owned772.yml"
+  workflow_dispatch:
+    inputs:
+      output_branch:
+        description: "New PR branch name (leave empty to use DEFAULT_PR_BRANCH below)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p104-owned772-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_PR_BRANCH: "pr-halitziyav5-pre-pi"
+      REQUESTED_BRANCH: ${{ inputs.output_branch }}
+      UPSTREAM: "https://github.com/bigospeedrun/verifier.git"
+      # Published PR #41 is the source of the 381 byte-identical inherited files.
+      BASELINE_COMMIT: "0efdd614a4ecae5b114c46f1fd8b153cd0f10f7f"
+      SOURCE: "submissions/dft/halitziyakartal-halitziyav4-logception"
+      DEST: "submissions/dft/halitziyakartal-halitziyav5-pre-pi"
+      ZIP: "p104-owned772-delta.zip"
+      EXPECTED_HASH: "a8506c23fc59aac4fce9b704de320074ec418bf4ef87247c1f298c0404412b34"
+
+    steps:
+      - name: Checkout builder branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Assemble and verify exact 426-file submission
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_BRANCH="${REQUESTED_BRANCH:-$DEFAULT_PR_BRANCH}"
+          git check-ref-format --branch "$PR_BRANCH" >/dev/null
+          if [[ "$PR_BRANCH" == main || "$PR_BRANCH" == master || "$PR_BRANCH" == "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Choose a NEW PR branch, separate from main and the builder branch."
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/$PR_BRANCH" > /dev/null; then
+            echo "::error::Branch '$PR_BRANCH' already exists; refusing to overwrite or force-push."
+            exit 1
+          fi
+          test -f "$ZIP" || { echo "::error::Upload $ZIP to this builder branch."; exit 1; }
+          T="$(mktemp -d)"
+          trap 'rm -rf "$T"' EXIT
+          mkdir -p "$T/delta" "$T/base"
+          unzip -tq "$ZIP"
+          unzip -q "$ZIP" -d "$T/delta"
+
+          # Load historical source commit AND recent upstream main, independently.
+          git fetch -q --no-tags --depth=1 "$UPSTREAM" "$BASELINE_COMMIT"
+          git fetch -q --no-tags --depth=1 "$UPSTREAM" main
+          git checkout -q -B "$PR_BRANCH" FETCH_HEAD
+          git archive "$BASELINE_COMMIT" "$SOURCE" | tar -xf - -C "$T/base"
+
+          python3 - "$T" "$SOURCE" "$DEST" <<'PY'
+          from pathlib import Path
+          import shutil
+          import sys
+
+          temp, source, dest = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+          delta, baseline = temp / "delta", temp / "base" / source
+          keep = (delta / "keep.txt").read_text().splitlines()
+          changed = sorted(f for f in (delta / "files").rglob("*") if f.is_file())
+          for relative in keep:
+              path = Path(relative)
+              assert not path.is_absolute() and ".." not in path.parts
+              original, output = baseline / path, dest / path
+              assert original.is_file(), f"Inherited file missing: {path}"
+              output.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(original, output)
+          for incoming in changed:
+              path = incoming.relative_to(delta / "files")
+              assert not path.is_absolute() and ".." not in path.parts
+              output = dest / path
+              assert not output.exists(), f"Conflicting source: {path}"
+              output.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(incoming, output)
+          all_files = [f for f in dest.rglob("*") if f.is_file()]
+          assert len(keep) == 381 and len(changed) == 45 and len(all_files) == 426, (
+              len(keep), len(changed), len(all_files)
+          )
+          print(f"Assembled {len(all_files)} files ({len(keep)} inherited + {len(changed)} overlay)")
+          PY
+
+          (cd "$DEST" && sha256sum --quiet -c "$T/delta/expected.sha256")
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+          echo "Assembled folder SHA-256: $SUM"
+          test "$SUM" = "$EXPECTED_HASH" || { echo "::error::Folder checksum mismatch; nothing pushed."; exit 1; }
+
+          git add -- "$DEST"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "DFT submission: saving 312780997/100000000000"
+          git push origin "HEAD:refs/heads/$PR_BRANCH"
+          echo "SUCCESS: verified complete submission pushed to branch '$PR_BRANCH'"
+          echo "Open a PR from '$PR_BRANCH' to bigospeedrun/verifier:main manually."
