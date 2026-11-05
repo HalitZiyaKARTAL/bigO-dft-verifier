@@ -1,0 +1,36 @@
+name: Assemble DFT pi PR branch
+on:
+  push:
+    paths: ['*.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          set -euo pipefail
+          Z=$(ls -1 dft-pi-submission*.zip 2>/dev/null | head -n 1 || true)
+          if [ -z "$Z" ]; then Z=$(ls -1 *.zip 2>/dev/null | head -n 1 || true); fi
+          if [ -z "$Z" ]; then echo "zip not found"; exit 0; fi
+          echo "zip: $Z"
+          DEST=submissions/dft/halitziyakartal-halitziyav6-pi
+          BRANCH=pr-halitziyav6-pi
+          cp "$Z" "$RUNNER_TEMP/sub.zip"
+          git fetch -q https://github.com/bigospeedrun/verifier main
+          git checkout -q -B "$BRANCH" FETCH_HEAD
+          echo "base: $(git rev-parse HEAD)"
+          if [ -e "$DEST" ]; then echo "$DEST already exists on main, nothing pushed"; exit 1; fi
+          mkdir -p "$DEST"
+          unzip -q "$RUNNER_TEMP/sub.zip" -d "$DEST"
+          SUM=$(cd "$DEST" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "folder checksum: $SUM"
+          if [ "$SUM" != "12dbd95e1f8fc6e92a57b6d17960a27f7303d89720628bf0985e1d0fb083d3b4" ]; then echo "checksum mismatch, nothing pushed"; exit 1; fi
+          git add "$DEST"
+          git -c user.name="${{ github.actor }}" -c user.email="${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com" commit -q -m "DFT submission: saving π/1000"
+          git push -q -f origin "$BRANCH"
+          echo "pushed branch $BRANCH: open the pull request from it"
